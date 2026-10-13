@@ -1,0 +1,53 @@
+# Her main push'unda Flutter web derler ve GitHub Pages'ta yayınlar.
+name: Web'e Yayınla
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+
+      - name: Flutter kur
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Paketler
+        run: flutter pub get
+
+      - name: Analiz
+        run: flutter analyze
+
+      - name: Testler
+        run: flutter test
+
+      - name: Web derle
+        run: flutter build web --release --base-href /Diyetisyen-Asistan/
+
+      - name: Pages'a yükle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - name: Yayınla
+        id: deploy
+        uses: actions/deploy-pages@v4
