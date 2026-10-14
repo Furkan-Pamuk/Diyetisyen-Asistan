@@ -3,10 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/menu_entry.dart';
+import '../models/recipe.dart';
 import '../state/app_store.dart';
 
-/// Weekly menu program: day by day (Pazartesi-Pazar), meal by meal.
-/// The grocery list is calculated from this menu when it is non-empty.
+/// Menu program: 4 weeks (monthly planning) x 7 days, meal by meal.
+/// The grocery list sums all weeks when the menu is non-empty.
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
 
@@ -15,25 +16,27 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> {
+  late int _week;
   late int _day;
 
   @override
   void initState() {
     super.initState();
-    final today = DateTime.now().weekday - 1; // 0 = Monday
-    _day = today.clamp(0, 6);
+    final now = DateTime.now();
+    _week = ((now.day - 1) ~/ 7).clamp(0, 3);
+    _day = (now.weekday - 1).clamp(0, 6);
   }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final entries = store.menuForDay(_day);
+    final entries = store.menuForDay(_day, _week);
     final totalServings =
         entries.fold<int>(0, (sum, e) => sum + e.servings);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Haftalık Menü'),
+        title: const Text('Menü Programı'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -54,18 +57,40 @@ class _MenuScreenState extends State<MenuScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: store.recipes.isEmpty
             ? null
-            : () => _openForm(context, null, _day),
+            : () => _openForm(context, null, _week, _day),
         icon: const Icon(Icons.add),
         label: const Text('Öğün Ekle'),
       ),
       body: Column(
         children: [
+          // ---- Month weeks ----
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              children: List.generate(4, (w) {
+                final count = store.weeklyMenu
+                    .where((e) => e.weekIndex == w)
+                    .length;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: ChoiceChip(
+                    label: Text(
+                        '${MenuEntry.weeks[w]}${count > 0 ? ' ($count)' : ''}'),
+                    selected: _week == w,
+                    onSelected: (_) => setState(() => _week = w),
+                  ),
+                );
+              }),
+            ),
+          ),
+          // ---- Week days ----
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(
               children: List.generate(7, (i) {
-                final count = store.menuForDay(i).length;
+                final count = store.menuForDay(i, _week).length;
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: ChoiceChip(
@@ -84,7 +109,7 @@ class _MenuScreenState extends State<MenuScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    '${MenuEntry.days[_day]} — ${entries.length} öğün, toplam $totalServings porsiyon',
+                    '${MenuEntry.weeks[_week]} • ${MenuEntry.days[_day]} — ${entries.length} öğün, toplam $totalServings porsiyon',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -158,8 +183,8 @@ class _MenuScreenState extends State<MenuScreen> {
                                 '${e.meal} • ${e.servings} porsiyon'),
                             trailing: IconButton(
                               icon: const Icon(Icons.edit, size: 20),
-                              onPressed: () =>
-                                  _openForm(context, e, _day),
+                              onPressed: () => _openForm(
+                                  context, e, e.weekIndex, e.dayIndex),
                             ),
                           ),
                         ),
@@ -172,26 +197,30 @@ class _MenuScreenState extends State<MenuScreen> {
     );
   }
 
-  void _openForm(BuildContext context, MenuEntry? existing, int day) {
+  void _openForm(
+      BuildContext context, MenuEntry? existing, int week, int day) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => MenuEntryFormSheet(existing: existing, day: day),
+      builder: (_) =>
+          MenuEntryFormSheet(existing: existing, week: week, day: day),
     );
   }
 }
 
 class MenuEntryFormSheet extends StatefulWidget {
   final MenuEntry? existing;
+  final int week;
   final int day;
   const MenuEntryFormSheet(
-      {super.key, required this.existing, required this.day});
+      {super.key, required this.existing, required this.week, required this.day});
 
   @override
   State<MenuEntryFormSheet> createState() => _MenuEntryFormSheetState();
 }
 
 class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
+  late int _week;
   late int _day;
   late String _meal;
   late String _recipeId;
@@ -202,6 +231,7 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
     super.initState();
     final store = context.read<AppStore>();
     final e = widget.existing;
+    _week = (e?.weekIndex ?? widget.week).clamp(0, 3);
     _day = e?.dayIndex ?? widget.day;
     _meal = e?.meal ?? MenuEntry.meals[1];
     if (!MenuEntry.meals.contains(_meal)) {
@@ -218,12 +248,20 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
   }
 
   int get _servings => int.tryParse(_servingsCtrl.text) ?? 0;
-  bool get _valid =>
-      _recipeId.isNotEmpty && _servings >= 1 && _servings <= 10000;
+
+  bool get _valid {
+    final store = context.read<AppStore>();
+    return _recipeId.isNotEmpty &&
+        store.recipes.any((r) => r.id == _recipeId) &&
+        _servings >= 1 &&
+        _servings <= 10000;
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final selectedName =
+        store.recipeById(_recipeId)?.name ?? '';
     return Padding(
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -236,6 +274,15 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
           children: [
             Text(widget.existing == null ? 'Öğün Ekle' : 'Öğünü Düzenle',
                 style: Theme.of(context).textTheme.titleLarge),
+            DropdownButtonFormField<int>(
+              initialValue: _week,
+              decoration: const InputDecoration(labelText: 'Hafta'),
+              items: List.generate(
+                  4,
+                  (i) => DropdownMenuItem(
+                      value: i, child: Text(MenuEntry.weeks[i]))),
+              onChanged: (v) => setState(() => _week = v!),
+            ),
             DropdownButtonFormField<int>(
               initialValue: _day,
               decoration: const InputDecoration(labelText: 'Gün'),
@@ -254,14 +301,40 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
                   .toList(),
               onChanged: (v) => setState(() => _meal = v!),
             ),
-            DropdownButtonFormField<String>(
-              initialValue: _recipeId.isEmpty ? null : _recipeId,
-              decoration: const InputDecoration(labelText: 'Tarif'),
-              items: store.recipes
-                  .map((r) => DropdownMenuItem(
-                      value: r.id, child: Text(r.name)))
-                  .toList(),
-              onChanged: (v) => setState(() => _recipeId = v!),
+            // ---- Searchable recipe picker ----
+            Autocomplete<Recipe>(
+              initialValue: TextEditingValue(text: selectedName),
+              displayStringForOption: (r) => r.name,
+              optionsBuilder: (value) {
+                final q = value.text.trim().toLowerCase();
+                if (q.isEmpty) return store.recipes;
+                return store.recipes.where((r) =>
+                    r.name.toLowerCase().contains(q));
+              },
+              onSelected: (r) => setState(() => _recipeId = r.id),
+              fieldViewBuilder:
+                  (ctx, controller, focusNode, onFieldSubmitted) {
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Tarif ara',
+                    prefixIcon: const Icon(Icons.search),
+                    errorText: store.recipes
+                            .any((r) => r.id == _recipeId)
+                        ? null
+                        : 'Listeden bir tarif seçin',
+                  ),
+                  onChanged: (v) {
+                    Recipe? exact;
+                    try {
+                      exact = store.recipes.firstWhere((r) =>
+                          r.name.toLowerCase() == v.trim().toLowerCase());
+                    } catch (_) {}
+                    setState(() => _recipeId = exact?.id ?? '');
+                  },
+                );
+              },
             ),
             TextField(
               controller: _servingsCtrl,
@@ -304,6 +377,7 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
     final store = context.read<AppStore>();
     if (widget.existing == null) {
       await store.addMenuEntry(MenuEntry(
+        weekIndex: _week,
         dayIndex: _day,
         meal: _meal,
         recipeId: _recipeId,
@@ -311,6 +385,7 @@ class _MenuEntryFormSheetState extends State<MenuEntryFormSheet> {
       ));
     } else {
       final e = widget.existing!;
+      e.weekIndex = _week;
       e.dayIndex = _day;
       e.meal = _meal;
       e.recipeId = _recipeId;

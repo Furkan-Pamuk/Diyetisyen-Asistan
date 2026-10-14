@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../data/suggestions.dart';
 import '../main.dart';
 import '../models/grocery_category.dart';
+import '../models/inventory_item.dart';
+import '../models/recipe.dart';
 import '../state/app_store.dart';
 import '../widgets/common.dart';
+import '../widgets/product_name_field.dart';
 import 'menu_screen.dart';
 
 class GroceryListScreen extends StatelessWidget {
@@ -28,6 +32,11 @@ class GroceryListScreen extends StatelessWidget {
                 : () => _share(context),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openAdd(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Ürün Ekle'),
       ),
       body: ListView(
         children: [
@@ -77,7 +86,7 @@ class GroceryListScreen extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     store.groceryUsesMenu
-                        ? 'Liste menü programından hesaplanır.'
+                        ? 'Liste menüden hesaplanır (${store.weeklyMenu.map((e) => e.weekIndex).toSet().length} hafta, ${store.weeklyMenu.length} öğün).'
                         : 'Menü boşken liste haftalık plandan hesaplanır.',
                     style: Theme.of(context).textTheme.bodySmall,
                     textAlign: TextAlign.center,
@@ -133,32 +142,46 @@ class GroceryListScreen extends StatelessWidget {
                   ),
                 ),
                 for (final item in grouped[cat]!)
-                  CheckboxListTile(
-                    value: item.isPurchased,
-                    activeColor: Colors.green,
-                    onChanged: (_) => context
+                  Dismissible(
+                    key: ValueKey(item.id),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 16),
+                      child:
+                          const Icon(Icons.delete, color: Colors.white),
+                    ),
+                    onDismissed: (_) => context
                         .read<AppStore>()
-                        .togglePurchased(item),
-                    title: Text(item.name,
+                        .deleteGroceryItem(item.id),
+                    child: CheckboxListTile(
+                      value: item.isPurchased,
+                      activeColor: Colors.green,
+                      onChanged: (_) => context
+                          .read<AppStore>()
+                          .togglePurchased(item),
+                      title: Text(item.name,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            decoration: item.isPurchased
+                                ? TextDecoration.lineThrough
+                                : null,
+                          )),
+                      subtitle: Text(
+                        item.isGram
+                            ? 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} g vardı'
+                            : 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} adet vardı',
+                      ),
+                      secondary: Text(
+                        item.formattedRequired(),
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
+                          color: cat.tint,
                           decoration: item.isPurchased
                               ? TextDecoration.lineThrough
                               : null,
-                        )),
-                    subtitle: Text(
-                      item.isGram
-                          ? 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} g vardı'
-                          : 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} adet vardı',
-                    ),
-                    secondary: Text(
-                      item.formattedRequired(),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: cat.tint,
-                        decoration: item.isPurchased
-                            ? TextDecoration.lineThrough
-                            : null,
+                        ),
                       ),
                     ),
                   ),
@@ -174,6 +197,14 @@ class GroceryListScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       builder: (_) => const WeeklyPlanSheet(),
+    );
+  }
+
+  void _openAdd(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const AddGroceryItemSheet(),
     );
   }
 
@@ -196,12 +227,25 @@ class GroceryListScreen extends StatelessWidget {
   }
 }
 
-class WeeklyPlanSheet extends StatelessWidget {
+class WeeklyPlanSheet extends StatefulWidget {
   const WeeklyPlanSheet({super.key});
+
+  @override
+  State<WeeklyPlanSheet> createState() => _WeeklyPlanSheetState();
+}
+
+class _WeeklyPlanSheetState extends State<WeeklyPlanSheet> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final q = _search.trim().toLowerCase();
+    final recipes = List.of(q.isEmpty
+        ? store.recipes
+        : store.recipes.where(
+            (r) => r.name.toLowerCase().contains(q)))
+      ..sort((a, b) => a.name.compareTo(b.name));
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -209,12 +253,24 @@ class WeeklyPlanSheet extends StatelessWidget {
         children: [
           Text('Haftalık Plan',
               style: Theme.of(context).textTheme.titleLarge),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Tarif ara',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() => _search = v),
+            ),
+          ),
           Flexible(
             child: ListView.builder(
               shrinkWrap: true,
-              itemCount: store.recipes.length,
+              itemCount: recipes.length,
               itemBuilder: (ctx, i) {
-                final r = store.recipes[i];
+                final r = recipes[i];
                 final servings = store.servingsFor(r.id);
                 return ListTile(
                   title: Text(r.name,
@@ -256,6 +312,142 @@ class WeeklyPlanSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
         ],
+      ),
+    );
+  }
+}
+
+/// Manual product entry with live suggestions.
+/// Typing "m" suggests Mandalina, Muz, ...; picking one auto-fills
+/// category and unit.
+class AddGroceryItemSheet extends StatefulWidget {
+  const AddGroceryItemSheet({super.key});
+
+  @override
+  State<AddGroceryItemSheet> createState() => _AddGroceryItemSheetState();
+}
+
+class _AddGroceryItemSheetState extends State<AddGroceryItemSheet> {
+  String _name = '';
+  GroceryCategory _category = GroceryCategory.freshProduce;
+  StockUnit _unit = StockUnit.gram;
+  final _amountCtrl = TextEditingController();
+
+  double get _amount =>
+      double.tryParse(_amountCtrl.text.replaceAll(',', '.')) ?? 0;
+
+  void _onNameChanged(String text, SuggestedProduct? match) {
+    setState(() {
+      _name = text.trim();
+      if (match != null) {
+        _category = match.category;
+        _unit = match.unit;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final valid = _name.isNotEmpty && _amount > 0;
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Listeye Ürün Ekle',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            ProductNameField(onChanged: _onNameChanged),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<GroceryCategory>(
+              initialValue: _category,
+              decoration: const InputDecoration(
+                  labelText: 'Kategori',
+                  border: OutlineInputBorder(),
+                  isDense: true),
+              items: GroceryCategory.values
+                  .map((c) => DropdownMenuItem(
+                      value: c, child: Text(c.displayName)))
+                  .toList(),
+              onChanged: (v) => setState(() => _category = v!),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<StockUnit>(
+              segments: const [
+                ButtonSegment(value: StockUnit.gram, label: Text('Gram (g)')),
+                ButtonSegment(value: StockUnit.piece, label: Text('Adet')),
+              ],
+              selected: {_unit},
+              onSelectionChanged: (s) => setState(() => _unit = s.first),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amountCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: false),
+              decoration: InputDecoration(
+                labelText: _unit == StockUnit.gram
+                    ? 'Miktar (g)'
+                    : 'Miktar (adet)',
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Vazgeç'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: valid
+                        ? () {
+                            final store = context.read<AppStore>();
+                            InventoryItem? match;
+                            try {
+                              match = store.inventory.firstWhere(
+                                  (e) =>
+                                      e.name.toLowerCase() ==
+                                      _name.toLowerCase());
+                            } catch (_) {}
+                            store.addGroceryItem(GroceryItem(
+                              name: _name,
+                              category: _category,
+                              unitKey: _unit.key,
+                              requiredAmount: _amount,
+                              currentStockAtGeneration:
+                                  match?.currentStock ?? 0,
+                              weekStart: store.weekStart,
+                            ));
+                            Navigator.pop(context);
+                          }
+                        : null,
+                    child: const Text('Ekle'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }

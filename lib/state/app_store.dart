@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,6 +34,13 @@ class AppStore extends ChangeNotifier {
   List<Supplier> suppliers = [];
   List<MenuEntry> weeklyMenu = [];
   DateTime weekStart = DateTime.now();
+  DateTime updatedAt = DateTime.now();
+
+  /// True when Firebase initialized (set by main). Without it: local mode.
+  bool firebaseReady = false;
+
+  /// "Hesapsız devam et" choice, persisted separately.
+  bool localOnly = false;
 
   bool _loaded = false;
   bool get loaded => _loaded;
@@ -268,9 +277,10 @@ class AppStore extends ChangeNotifier {
 
   // ---------- Weekly menu program ----------
 
-  List<MenuEntry> menuForDay(int dayIndex) {
-    final list =
-        weeklyMenu.where((e) => e.dayIndex == dayIndex).toList();
+  List<MenuEntry> menuForDay(int dayIndex, [int weekIndex = 0]) {
+    final list = weeklyMenu
+        .where((e) => e.dayIndex == dayIndex && e.weekIndex == weekIndex)
+        .toList();
     int mealRank(String meal) {
       final i = MenuEntry.meals.indexOf(meal);
       return i == -1 ? 99 : i;
@@ -280,7 +290,8 @@ class AppStore extends ChangeNotifier {
     return list;
   }
 
-  /// Total planned servings per recipe, aggregated from the menu.
+  /// Total planned servings per recipe, aggregated from the whole
+  /// menu program (all 4 weeks for monthly planning).
   Map<String, int> menuServingsByRecipe() {
     final map = <String, int>{};
     for (final e in weeklyMenu) {
@@ -397,6 +408,46 @@ class AppStore extends ChangeNotifier {
     await save();
   }
 
+  /// Manually added grocery item (e.g. from autocomplete suggestions).
+  Future<void> addGroceryItem(GroceryItem item) async {
+    groceryItems.add(item);
+    groceryItems.sort((a, b) {
+      final ca = GroceryCategory.values.indexOf(a.category);
+      final cb = GroceryCategory.values.indexOf(b.category);
+      if (ca != cb) return ca.compareTo(cb);
+      return a.name.compareTo(b.name);
+    });
+    await save();
+  }
+
+  Future<void> deleteGroceryItem(String id) async {
+    groceryItems.removeWhere((e) => e.id == id);
+    await save();
+  }
+
+  // ---------- Recipes ----------
+
+  Future<void> addRecipe(Recipe recipe) async {
+    recipes.add(recipe);
+    await save();
+  }
+
+  Future<void> updateRecipe(Recipe recipe) async {
+    final i = recipes.indexWhere((e) => e.id == recipe.id);
+    if (i == -1) return;
+    recipes[i] = recipe;
+    await save();
+  }
+
+  /// Deletes a recipe and removes its lines from the plan and the menu.
+  Future<void> deleteRecipe(String id) async {
+    recipes.removeWhere((e) => e.id == id);
+    weeklyPlan.removeWhere((e) => e.recipeId == id);
+    weeklyMenu.removeWhere((e) => e.recipeId == id);
+    await save();
+    await generateGroceryList();
+  }
+
   Map<GroceryCategory, List<GroceryItem>> groceryGrouped() {
     return {
       for (final c in GroceryCategory.values)
@@ -410,13 +461,9 @@ class AppStore extends ChangeNotifier {
     return done / groceryItems.length;
   }
 
-  // ---------- Persistence ----------
+  // ---------- Persistence (local + cloud) ----------
 
-  Future<void> save() async {
-    notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final data = jsonEncode({
+  Map<String, dynamic> snapshotMap() => {
         'orders': supplierOrders.map((e) => e.toJson()).toList(),
         'inventory': inventory.map((e) => e.toJson()).toList(),
         'recipes': recipes.map((e) => e.toJson()).toList(),
@@ -426,73 +473,166 @@ class AppStore extends ChangeNotifier {
         'suppliers': suppliers.map((e) => e.toJson()).toList(),
         'menu': weeklyMenu.map((e) => e.toJson()).toList(),
         'weekStart': weekStart.toIso8601String(),
-      });
-      await prefs.setString(_storageKey, data);
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+
+  Future<void> save() async {
+    updatedAt = DateTime.now();
+    notifyListeners();
+    await _saveLocal();
+    _schedulePush();
+  }
+
+  Future<void> _saveLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, jsonEncode(snapshotMap()));
+      await prefs.setBool('$_storageKey-local-only', localOnly);
     } catch (e) {
       debugPrint('Save failed: $e');
     }
   }
 
+  void _applySnapshot(Map<String, dynamic> j) {
+    supplierOrders = ((j['orders'] as List?) ?? [])
+        .map((e) => SupplierOrder.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    inventory = ((j['inventory'] as List?) ?? [])
+        .map((e) => InventoryItem.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    recipes = ((j['recipes'] as List?) ?? [])
+        .map((e) => Recipe.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    productionLogs = ((j['logs'] as List?) ?? [])
+        .map((e) => ProductionLog.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    groceryItems = ((j['grocery'] as List?) ?? [])
+        .map((e) => GroceryItem.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    weeklyPlan = ((j['plan'] as List?) ?? [])
+        .map((e) => WeeklyPlanEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    try {
+      suppliers = ((j['suppliers'] as List?) ?? [])
+          .map((e) => Supplier.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      suppliers = [];
+    }
+    if (suppliers.isEmpty) {
+      suppliers = [Supplier(name: 'Supplier X', note: 'Varsayılan tedarikçi')];
+    }
+    for (final o in supplierOrders) {
+      if (o.supplierId == null ||
+          !suppliers.any((s) => s.id == o.supplierId)) {
+        try {
+          final match = suppliers.firstWhere((s) => s.name == o.supplierName);
+          o.supplierId = match.id;
+          o.supplierName = match.name;
+        } catch (_) {
+          o.supplierId = suppliers.first.id;
+          o.supplierName = suppliers.first.name;
+        }
+      }
+    }
+    try {
+      weeklyMenu = ((j['menu'] as List?) ?? [])
+          .map((e) => MenuEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      weeklyMenu = [];
+    }
+    weekStart = DateTime.tryParse(j['weekStart'] as String? ?? '') ??
+        DateTime.now();
+    updatedAt = DateTime.tryParse(j['updatedAt'] as String? ?? '') ??
+        DateTime.now();
+  }
+
   Future<bool> loadFromDisk() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      localOnly =
+          prefs.getBool('$_storageKey-local-only') ?? false;
       final raw = prefs.getString(_storageKey);
       if (raw == null) return false;
-      final j = jsonDecode(raw) as Map<String, dynamic>;
-      supplierOrders = ((j['orders'] as List?) ?? [])
-          .map((e) => SupplierOrder.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      inventory = ((j['inventory'] as List?) ?? [])
-          .map((e) => InventoryItem.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      recipes = ((j['recipes'] as List?) ?? [])
-          .map((e) => Recipe.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      productionLogs = ((j['logs'] as List?) ?? [])
-          .map((e) => ProductionLog.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      groceryItems = ((j['grocery'] as List?) ?? [])
-          .map((e) => GroceryItem.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      weeklyPlan = ((j['plan'] as List?) ?? [])
-          .map((e) => WeeklyPlanEntry.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      // New keys with migration for data saved by older versions.
-      try {
-        suppliers = ((j['suppliers'] as List?) ?? [])
-            .map((e) => Supplier.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList();
-      } catch (_) {
-        suppliers = [];
-      }
-      if (suppliers.isEmpty) {
-        suppliers = [Supplier(name: 'Supplier X', note: 'Varsayılan tedarikçi')];
-      }
-      for (final o in supplierOrders) {
-        if (o.supplierId == null ||
-            !suppliers.any((s) => s.id == o.supplierId)) {
-          try {
-            final match = suppliers.firstWhere((s) => s.name == o.supplierName);
-            o.supplierId = match.id;
-            o.supplierName = match.name;
-          } catch (_) {
-            o.supplierId = suppliers.first.id;
-            o.supplierName = suppliers.first.name;
-          }
-        }
-      }
-      try {
-        weeklyMenu = ((j['menu'] as List?) ?? [])
-            .map((e) => MenuEntry.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList();
-      } catch (_) {
-        weeklyMenu = [];
-      }
-      weekStart = DateTime.parse(j['weekStart'] as String);
+      _applySnapshot(jsonDecode(raw) as Map<String, dynamic>);
       return true;
     } catch (e) {
       debugPrint('Load failed: $e');
       return false;
+    }
+  }
+
+  // ---------- Cloud sync (Firebase, same account = same data) ----------
+
+  String? _syncUid;
+  bool get syncOn => _syncUid != null;
+  StreamSubscription<DocumentSnapshot>? _syncSub;
+  Timer? _pushTimer;
+
+  DocumentReference get _userDoc => FirebaseFirestore.instance
+      .collection('users')
+      .doc(_syncUid);
+
+  /// Starts syncing with the cloud account. Last-write-wins:
+  /// the newer side (local or cloud) overwrites the other.
+  Future<void> enableSync(String uid) async {
+    if (_syncUid == uid) return;
+    await _syncSub?.cancel();
+    _syncUid = uid;
+    try {
+      final snap = await _userDoc.get();
+      final data = snap.data() as Map<String, dynamic>?;
+      if (data != null) {
+        final remoteTime =
+            DateTime.tryParse(data['updatedAt'] as String? ?? '');
+        if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
+          _applySnapshot(Map<String, dynamic>.from(data));
+          await _saveLocal();
+        } else if (remoteTime == null || updatedAt.isAfter(remoteTime)) {
+          await _pushNow();
+        }
+      } else {
+        await _pushNow(); // first login: upload local data
+      }
+      _syncSub = _userDoc.snapshots().listen((s) {
+        final d = s.data() as Map<String, dynamic>?;
+        if (d == null) return;
+        final remoteTime =
+            DateTime.tryParse(d['updatedAt'] as String? ?? '');
+        if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
+          _applySnapshot(Map<String, dynamic>.from(d));
+          _saveLocal();
+          notifyListeners();
+        }
+      });
+    } catch (e) {
+      debugPrint('Sync failed: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> disableSync() async {
+    await _syncSub?.cancel();
+    _pushTimer?.cancel();
+    _syncSub = null;
+    _syncUid = null;
+    await _saveLocal();
+    notifyListeners();
+  }
+
+  void _schedulePush() {
+    if (_syncUid == null) return;
+    _pushTimer?.cancel();
+    _pushTimer = Timer(const Duration(seconds: 1), _pushNow);
+  }
+
+  Future<void> _pushNow() async {
+    if (_syncUid == null) return;
+    try {
+      await _userDoc.set(snapshotMap());
+    } catch (e) {
+      debugPrint('Push failed: $e');
     }
   }
 
@@ -521,7 +661,18 @@ class AppStore extends ChangeNotifier {
     final chicken = mk('Tavuk Göğsü', GroceryCategory.meatDairy, StockUnit.gram, 1500, 4000, 1500);
     final milk = mk('Süt', GroceryCategory.meatDairy, StockUnit.gram, 2000, 3000, 1000);
     final eggs = mk('Yumurta', GroceryCategory.meatDairy, StockUnit.piece, 8, 30, 12);
-    inventory = [tomato, cucumber, apple, lentils, rice, oats, chicken, milk, eggs];
+    final potato = mk('Patates', GroceryCategory.freshProduce, StockUnit.gram, 3000, 5000, 1000);
+    final onion = mk('Soğan', GroceryCategory.freshProduce, StockUnit.gram, 2000, 4000, 1000);
+    final lettuce = mk('Marul', GroceryCategory.freshProduce, StockUnit.piece, 6, 20, 5);
+    final banana = mk('Muz', GroceryCategory.freshProduce, StockUnit.piece, 6, 20, 4);
+    final mandarin = mk('Mandalina', GroceryCategory.freshProduce, StockUnit.piece, 10, 30, 6);
+    final orange = mk('Portakal', GroceryCategory.freshProduce, StockUnit.piece, 8, 24, 6);
+    final mince = mk('Kıyma', GroceryCategory.meatDairy, StockUnit.gram, 2000, 4000, 1500);
+    final yogurt = mk('Yoğurt', GroceryCategory.meatDairy, StockUnit.gram, 2500, 4000, 1000);
+    final bulgur = mk('Bulgur', GroceryCategory.dryGoods, StockUnit.gram, 3000, 5000, 1500);
+    final chickpea = mk('Nohut', GroceryCategory.dryGoods, StockUnit.gram, 2500, 4000, 1000);
+    inventory = [tomato, cucumber, apple, lentils, rice, oats, chicken, milk, eggs,
+      potato, onion, lettuce, banana, mandarin, orange, mince, yogurt, bulgur, chickpea];
 
     RecipeIngredient ing(InventoryItem item, double amount) =>
         RecipeIngredient(itemId: item.id, amountPerServing: amount);
@@ -538,7 +689,45 @@ class AppStore extends ChangeNotifier {
     final omelette = Recipe(name: 'Sebzeli Omlet', description: '2 kişilik',
         servingsDefault: 2,
         ingredients: [ing(eggs, 2), ing(tomato, 60), ing(milk, 50)]);
-    recipes = [soup, chickenSalad, oatmeal, omelette];
+    final icliKofte = Recipe(name: 'İçli Köfte', description: '6 kişilik',
+        servingsDefault: 6,
+        ingredients: [ing(bulgur, 80), ing(mince, 100), ing(onion, 30)]);
+    final tavukSote = Recipe(name: 'Tavuk Sote', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(chicken, 150), ing(tomato, 80), ing(onion, 30)]);
+    final bulgurPilav = Recipe(name: 'Bulgur Pilavı', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(bulgur, 70), ing(onion, 20)]);
+    final cacik = Recipe(name: 'Cacık', description: '2 kişilik',
+        servingsDefault: 2,
+        ingredients: [ing(yogurt, 150), ing(cucumber, 60)]);
+    final menemen = Recipe(name: 'Menemen', description: '2 kişilik',
+        servingsDefault: 2,
+        ingredients: [ing(eggs, 2), ing(tomato, 100)]);
+    final kisir = Recipe(name: 'Kısır', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(bulgur, 60), ing(tomato, 50), ing(onion, 15)]);
+    final cobanSalata = Recipe(name: 'Çoban Salata', description: '2 kişilik',
+        servingsDefault: 2,
+        ingredients: [ing(tomato, 80), ing(cucumber, 60), ing(onion, 20)]);
+    final etliNohut = Recipe(name: 'Etli Nohut', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(chickpea, 70), ing(mince, 60), ing(onion, 20)]);
+    final meyveSalata = Recipe(name: 'Meyve Salatası', description: '2 kişilik',
+        servingsDefault: 2,
+        ingredients: [ing(apple, 1), ing(banana, 1), ing(orange, 1), ing(mandarin, 2)]);
+    final mercimekKofte = Recipe(name: 'Mercimek Köftesi', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(lentils, 50), ing(bulgur, 40), ing(onion, 20)]);
+    final firinTavuk = Recipe(name: 'Fırın Tavuk Patates', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(chicken, 150), ing(potato, 120), ing(onion, 20)]);
+    final yogurtCorba = Recipe(name: 'Yoğurt Çorbası', description: '4 kişilik',
+        servingsDefault: 4,
+        ingredients: [ing(yogurt, 120), ing(rice, 20)]);
+    recipes = [soup, chickenSalad, oatmeal, omelette, icliKofte, tavukSote,
+      bulgurPilav, cacik, menemen, kisir, cobanSalata, etliNohut, meyveSalata,
+      mercimekKofte, firinTavuk, yogurtCorba];
 
     final supX = Supplier(name: 'Supplier X', note: 'Varsayılan tedarikçi');
     final supHal = Supplier(name: 'Hal Tedarikçisi', note: 'Sebze & meyve');

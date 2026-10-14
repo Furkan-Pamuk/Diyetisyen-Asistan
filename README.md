@@ -1,5 +1,55 @@
 # Dietitian Assistant — Flutter (Android / iOS / Web)
 
+## Farklı cihazlarda aynı veri (ücretsiz Firebase eşitlemesi)
+
+Veri normalde her cihazın kendi tarayıcısında durur. Aynı hesapla girince
+bulutta eşitlenir: telefonda eklediğin liste bilgisayarda görünür.
+
+Kurulum (bir kez yapılır, Mac gerekmez):
+
+1. **Firebase projesi:** console.firebase.google.com → Add project
+   (adı örn. `diyetisyen-asistan`, Analytics kapalı olabilir) → Create.
+2. **Giriş yöntemi:** sol menü Build → Authentication → Get started →
+   Sign-in method → **Email/Password** → Enable → Save.
+3. **Veritabanı:** Build → Firestore Database → Create database →
+   **Start in production mode** → bölge seç (örn. europe-west) → Enable.
+   Rules sekmesine geçip kuralları şununla değiştirip Publish et:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+   ```
+4. **Bağlantı aracı:**
+   ```
+   dart pub global activate flutterfire_cli
+   ```
+5. **Uygulamayı bağla** (proje klasöründe; web seç, hesabını seç,
+   Firebase projesini seç):
+   ```
+   cd dietitian_flutter
+   flutterfire configure
+   ```
+   Bu `lib/firebase_options.dart` dosyasını üretir.
+6. **Gönder ve yayınla:**
+   ```
+   flutter pub get
+   flutter analyze
+   flutter run -d edge
+   ```
+   Çalışıyorsa `git add/commit/push` — site otomatik güncellenir.
+7. **Kullanım:** telefonda ve bilgisayarda siteye girip **aynı e-postayla**
+   kayıt ol/giriş yap. Özet ekranında yeşil bulut = eşitleme açık.
+   Son değişiklik kazanır; internetsiz yapılan değişiklikler bağlantı
+   gelince eşitlenir. "Hesapsız devam et" dersen veri o cihazda kalır.
+
+Maliyet: Spark (ücretsiz) plan bu kullanıma fazlasıyla yeter.
+
+
 Flutter port of the dietitian assistant. Same three core features as the SwiftUI version:
 
 1. **Supplier X order reminders** — order/pickup dates, countdowns, local notifications (`flutter_local_notifications`).
@@ -8,6 +58,9 @@ Flutter port of the dietitian assistant. Same three core features as the SwiftUI
    Production supports manual servings (1-10000, e.g. 200 people) and editable ingredient totals.
 3. **Weekly grocery list** — deficit = planned need − stock, grouped into **Hal / Kuru Gıda / Et Süt** with precise g / adet.
    Weekly menu program (Mon-Sun, per meal) feeds the grocery list when non-empty.
+   Manual product entry with ~110-item Turkish autocomplete suggestions ("m" → Mandalina, Muz...).
+4. **Recipes** — 16 sample recipes, full CRUD: add/edit/delete recipes with hand-editable
+   per-serving amounts; new stock products can be created inline while defining a recipe.
 
 ## Structure
 

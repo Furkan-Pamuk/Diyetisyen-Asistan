@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -14,7 +15,45 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     return Scaffold(
-      appBar: AppBar(title: const Text('Diyetisyen Asistanı')),
+      appBar: AppBar(
+        title: const Text('Diyetisyen Asistanı'),
+        actions: [
+          if (store.syncOn)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Tooltip(
+                message: 'Bulut eşitlemesi açık — her cihazda aynı veri',
+                child: Icon(Icons.cloud_done, color: Colors.green),
+              ),
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Tooltip(
+                message: 'Yerel mod (eşitleme kapalı)',
+                child: Icon(Icons.cloud_off, color: Colors.grey),
+              ),
+            ),
+          if (store.syncOn)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Çıkış yap',
+              onPressed: () async {
+                await context.read<AppStore>().disableSync();
+                await FirebaseAuth.instance.signOut();
+              },
+            ),
+          if (store.firebaseReady && store.localOnly && !store.syncOn)
+            IconButton(
+              icon: const Icon(Icons.login),
+              tooltip: 'Hesapla giriş yap',
+              onPressed: () async {
+                store.localOnly = false;
+                await store.save();
+              },
+            ),
+        ],
+      ),
       body: ListView(
         children: [
           _sectionTitle(context, 'Dikkat Gerekenler'),
@@ -49,7 +88,9 @@ class DashboardScreen extends StatelessWidget {
             ),
           _sectionTitle(context, 'Bugünkü Menü (${MenuEntry.days[DateTime.now().weekday - 1]})'),
           Builder(builder: (ctx) {
-            final today = store.menuForDay(DateTime.now().weekday - 1);
+            final now = DateTime.now();
+            final wom = ((now.day - 1) ~/ 7).clamp(0, 3);
+            final today = store.menuForDay(now.weekday - 1, wom);
             if (today.isEmpty) {
               return const ListTile(
                   title: Text('Bugün için menü yok. Menü sekmesinden ekleyin.'));

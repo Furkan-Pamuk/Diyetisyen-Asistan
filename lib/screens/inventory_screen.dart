@@ -7,6 +7,7 @@ import '../models/grocery_category.dart';
 import '../models/inventory_item.dart';
 import '../state/app_store.dart';
 import '../widgets/common.dart';
+import '../widgets/product_name_field.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -238,10 +239,15 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
           children: [
             Text('Yeni Ürün',
                 style: Theme.of(context).textTheme.titleLarge),
-            TextField(
-                controller: _name,
-                decoration:
-                    const InputDecoration(labelText: 'Ürün adı')),
+            ProductNameField(
+              onChanged: (text, match) => setState(() {
+                _name.text = text;
+                if (match != null) {
+                  _cat = match.category;
+                  _unit = match.unit;
+                }
+              }),
+            ),
             DropdownButtonFormField<GroceryCategory>(
               initialValue: _cat,
               decoration: const InputDecoration(labelText: 'Kategori'),
