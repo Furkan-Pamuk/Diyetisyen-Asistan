@@ -32,12 +32,63 @@ class DietitianApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: store,
-      child: MaterialApp(
+        child: MaterialApp(
         title: 'Diyetisyen Asistanı',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorSchemeSeed: Colors.green,
+          colorSchemeSeed: const Color(0xFF1B5E20),
           useMaterial3: true,
+          fontFamily: 'Inter',
+          scaffoldBackgroundColor: const Color(0xFFF6F8F4),
+          cardTheme: CardThemeData(
+            color: Colors.white,
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Color(0xFFE5E7EB), width: 0.5),
+            ),
+          ),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1B5E20),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            centerTitle: false,
+            titleTextStyle: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          textTheme: const TextTheme(
+            titleLarge: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 24,
+              letterSpacing: -0.5,
+              color: Color(0xFF1A1A2E),
+            ),
+            bodyMedium: TextStyle(
+              fontSize: 15,
+              height: 1.5,
+              color: Color(0xFF1A1A2E),
+            ),
+          ),
+          navigationBarTheme: NavigationBarThemeData(
+            height: 72,
+            indicatorColor: const Color(0xFF1B5E20).withValues(alpha: 0.12),
+            labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>(
+              (states) => states.contains(WidgetState.selected)
+                  ? const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFF1B5E20),
+                    )
+                  : const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      color: Color(0xFF6C7280),
+                    ),
+            ),
+          ),
         ),
         home: const AuthGate(),
       ),

@@ -5,6 +5,7 @@ import '../state/app_store.dart';
 import 'dashboard_screen.dart';
 import 'supplier_orders_screen.dart';
 import 'inventory_screen.dart';
+import 'production_table_screen.dart';
 import 'menu_screen.dart';
 import 'recipes_screen.dart';
 import 'grocery_list_screen.dart';
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
     RecipesScreen(),
     MenuScreen(),
     GroceryListScreen(),
+    ProductionTableScreen(),
   ];
 
   @override
@@ -76,6 +78,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(Icons.calendar_month),
             ),
             label: 'Menü',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.table_chart),
+            label: 'Üretim Tablosu',
           ),
           NavigationDestination(
             icon: Badge(
