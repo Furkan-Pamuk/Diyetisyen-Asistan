@@ -679,6 +679,7 @@ class _ProductionTableScreenState extends State<ProductionTableScreen> {
   // ---------- Excel/PDF içe aktarma ----------
 
   Future<void> _importMenu(BuildContext context) async {
+    final store = context.read<AppStore>();
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx', 'xls', 'csv', 'pdf'],
@@ -737,9 +738,7 @@ class _ProductionTableScreenState extends State<ProductionTableScreen> {
         }
         return;
       }
-      final store = context.read<AppStore>();
-      int added = 0;
-      int matched = 0;
+      int added = 0;      int matched = 0;
       for (final r in rows) {
         final recipe = await store.findOrCreateRecipeByName(r.dish);
         if (recipe.ingredients.isNotEmpty) matched++;

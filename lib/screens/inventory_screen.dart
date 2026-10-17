@@ -94,17 +94,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                       fontWeight: FontWeight.bold)),
                             ),
                             if (item.isOutOfStock)
-                              StatusBadge(
+                              const StatusBadge(
                                 text: 'Tükendi',
                                 color: Colors.red,
                               )
                             else if (item.isCritical)
-                              StatusBadge(
+                              const StatusBadge(
                                 text: 'Kritik',
                                 color: Colors.red,
                               )
                             else if (item.isWarning)
-                              StatusBadge(
+                              const StatusBadge(
                                 text: 'Azalan',
                                 color: Colors.orange,
                               ),

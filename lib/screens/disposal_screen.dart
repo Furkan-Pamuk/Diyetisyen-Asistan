@@ -639,20 +639,7 @@ class _DisposalFormSheetState extends State<DisposalFormSheet> {
               OutlinedButton.icon(
                 onPressed: _form.lines.isEmpty
                     ? null
-                    : () async {
-                        await _save();
-                        await store.deductDisposalStock(
-                            _form.id);
-                        setState(() {});
-                        if (mounted) {
-                          ScaffoldMessenger.of(context)
-                              .showSnackBar(
-                            const SnackBar(
-                                content: Text(
-                                    'Miktarlar stoktan düşüldü.')),
-                          );
-                        }
-                      },
+                    : () => _deductStock(context),
                 icon: const Icon(
                     Icons.inventory_2_outlined),
                 label: const Text(
@@ -979,6 +966,18 @@ class _DisposalFormSheetState extends State<DisposalFormSheet> {
       );
       setState(() {});
     }
+  }
+
+  Future<void> _deductStock(BuildContext context) async {
+    final store = context.read<AppStore>();
+    await _save();
+    await store.deductDisposalStock(_form.id);
+    if (!context.mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('Miktarlar stoktan düşüldü.')),
+    );
   }
 
   Future<void> _exportExcel(BuildContext context) async {

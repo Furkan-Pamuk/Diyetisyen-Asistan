@@ -74,6 +74,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _saveProfile() async {
+    setState(() => _saving = true);
+    final name = _nameCtrl.text;
+    final title = _titleCtrl.text;
+    await context.read<AppStore>().updateProfile(
+          name: name,
+          title: title,
+        );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profil kaydedildi.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -161,26 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: _saving
-                          ? null
-                          : () async {
-                              setState(() => _saving = true);
-                              await context
-                                  .read<AppStore>()
-                                  .updateProfile(
-                                    name: _nameCtrl.text,
-                                    title: _titleCtrl.text,
-                                  );
-                              if (mounted) {
-                                setState(() => _saving = false);
-                                ScaffoldMessenger.of(context)
-                                    .showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Profil kaydedildi.')),
-                                );
-                              }
-                            },
+                      onPressed: _saving ? null : () => _saveProfile(),
                       child: _saving
                           ? const SizedBox(
                               width: 20,

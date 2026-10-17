@@ -136,12 +136,12 @@ class _NotesCardState extends State<NotesCard> {
     if (path == null || path.isEmpty) return;
 
     setState(() => _busy = true);
+    final store = context.read<AppStore>();
+    final label = _textCtrl.text.trim().isEmpty
+        ? 'Sesli not'
+        : _textCtrl.text.trim();
     try {
       final bytes = await _readAudioBytes(path);
-      final store = context.read<AppStore>();
-      final label = _textCtrl.text.trim().isEmpty
-          ? 'Sesli not'
-          : _textCtrl.text.trim();
       final note = await store.addNote(label);
       if (bytes != null && bytes.isNotEmpty) {
         await store.setNoteAudio(note.id, base64Encode(bytes));
@@ -197,18 +197,19 @@ class _NotesCardState extends State<NotesCard> {
   }
 
   Future<void> _togglePlay(String noteId) async {
+    final store = context.read<AppStore>();
+    final sessionUrl = _sessionUrls[noteId];
     if (_playingId == noteId) {
       await _stopPlayback();
       return;
     }
     await _stopPlayback();
-    final store = context.read<AppStore>();
     try {
       final b64 = store.noteAudioBase64(noteId);
       if (b64 != null && b64.isNotEmpty) {
         await _player.play(BytesSource(base64Decode(b64)));
-      } else if (_sessionUrls[noteId] != null) {
-        await _player.play(UrlSource(_sessionUrls[noteId]!));
+      } else if (sessionUrl != null) {
+        await _player.play(UrlSource(sessionUrl));
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
