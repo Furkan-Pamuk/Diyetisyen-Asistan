@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
 
+import 'order_line.dart';
+
 const _uuid = Uuid();
 
 enum SupplierOrderStatus {
@@ -14,15 +16,15 @@ extension SupplierOrderStatusX on SupplierOrderStatus {
   String get displayName {
     switch (this) {
       case SupplierOrderStatus.scheduled:
-        return 'Scheduled';
+        return 'Planlandı';
       case SupplierOrderStatus.ordered:
-        return 'Ordered';
+        return 'Sipariş Bekleniyor';
       case SupplierOrderStatus.ready:
-        return 'Ready for Pickup';
+        return 'Teslimata Hazır';
       case SupplierOrderStatus.pickedUp:
-        return 'Picked Up';
+        return 'Teslim Alındı';
       case SupplierOrderStatus.cancelled:
-        return 'Cancelled';
+        return 'İptal';
     }
   }
 
@@ -52,6 +54,9 @@ class SupplierOrder {
   SupplierOrderStatus status;
   String notes;
   bool reminderEnabled;
+  /// Yapısal sipariş kalemleri (sepetten veya elle). Boş olabilir
+  /// (eski siparişler); teslim alma ekranında satır eklenebilir.
+  List<OrderLine> items;
 
   SupplierOrder({
     String? id,
@@ -63,7 +68,9 @@ class SupplierOrder {
     this.status = SupplierOrderStatus.scheduled,
     this.notes = '',
     this.reminderEnabled = true,
-  }) : id = id ?? _uuid.v4();
+    List<OrderLine>? items,
+  }) : id = id ?? _uuid.v4(),
+       items = items ?? [];
 
   static int daysUntil(DateTime date, [DateTime? now]) {
     final n = now ?? DateTime.now();
@@ -108,6 +115,10 @@ class SupplierOrder {
         status: SupplierOrderStatusX.fromKey(j['status'] as String),
         notes: (j['notes'] as String?) ?? '',
         reminderEnabled: (j['reminderEnabled'] as bool?) ?? true,
+        items: ((j['items'] as List?) ?? [])
+            .map((e) =>
+                OrderLine.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -120,5 +131,6 @@ class SupplierOrder {
         'status': status.key,
         'notes': notes,
         'reminderEnabled': reminderEnabled,
+        'items': items.map((e) => e.toJson()).toList(),
       };
 }

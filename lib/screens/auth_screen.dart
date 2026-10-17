@@ -1,11 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_store.dart';
+import '../theme/app_colors.dart';
 
-/// Email/password login + register. Same account on every device
-/// sees the same data (cloud sync).
+/// Modern authentication screen with cloud sync info & guest mode.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -30,8 +31,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _submit() async {
     final email = _email.text.trim();
     if (!email.contains('@') || _pass.text.length < 6) {
-      setState(() => _error =
-          'Geçerli bir e-posta ve en az 6 karakterli şifre girin.');
+      setState(() => _error = 'Geçerli bir e-posta ve en az 6 karakterli şifre girin.');
       return;
     }
     setState(() {
@@ -41,13 +41,10 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       final auth = FirebaseAuth.instance;
       if (_registerMode) {
-        await auth.createUserWithEmailAndPassword(
-            email: email, password: _pass.text);
+        await auth.createUserWithEmailAndPassword(email: email, password: _pass.text);
       } else {
-        await auth.signInWithEmailAndPassword(
-            email: email, password: _pass.text);
+        await auth.signInWithEmailAndPassword(email: email, password: _pass.text);
       }
-      // AuthGate rebuilds automatically via authStateChanges.
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _tr(e));
     } catch (e) {
@@ -80,83 +77,145 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Diyetisyen Asistanı')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Icon(Icons.cloud_sync, size: 64, color: Colors.green),
-            const SizedBox(height: 12),
-            Text(
-              'Aynı hesap, her cihazda aynı veri',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Telefon ve bilgisayarda aynı e-postayla giriş yapın, listeniz ve stoğunuz eşitlensin.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 24),
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Giriş Yap')),
-                ButtonSegment(value: true, label: Text('Kayıt Ol')),
-              ],
-              selected: {_registerMode},
-              onSelectionChanged: (s) =>
-                  setState(() => _registerMode = s.first),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'E-posta',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.email),
+      backgroundColor: AppColors.surface,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.cardBorder),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Brand Icon
+                    Center(
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [AppColors.primary, AppColors.primaryLight],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.25),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.spa_rounded, color: Colors.white, size: 30),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Diyetisyen Asistanı',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Tüm cihazlarınızda gerçek zamanlı senkronizasyon ve akıllı mutfak yönetimi.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Toggle Mode
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Giriş Yap')),
+                        ButtonSegment(value: true, label: Text('Kayıt Ol')),
+                      ],
+                      selected: {_registerMode},
+                      onSelectionChanged: (s) => setState(() => _registerMode = s.first),
+                      style: ButtonStyle(
+                        shape: WidgetStateProperty.all(
+                          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'E-posta Adresi',
+                        prefixIcon: Icon(Icons.email_outlined, size: 20),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _pass,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Şifre',
+                        prefixIcon: Icon(Icons.lock_outline, size: 20),
+                      ),
+                      onSubmitted: (_) => _submit(),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _error!,
+                          style: GoogleFonts.plusJakartaSans(
+                            color: AppColors.error,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      child: _busy
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : Text(_registerMode ? 'Hesap Oluştur' : 'Giriş Yap'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final store = context.read<AppStore>();
+                        store.localOnly = true;
+                        await store.save();
+                      },
+                      child: const Text('Hesapsız Devam Et (Yerel Mod)'),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _pass,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Şifre (en az 6 karakter)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock),
-              ),
-              onSubmitted: (_) => _submit(),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!,
-                  style: const TextStyle(color: Colors.red),
-                  textAlign: TextAlign.center),
-            ],
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _busy ? null : _submit,
-              child: _busy
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child:
-                          CircularProgressIndicator(strokeWidth: 2))
-                  : Text(_registerMode ? 'Kayıt Ol' : 'Giriş Yap'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: () async {
-                final store = context.read<AppStore>();
-                store.localOnly = true;
-                await store.save();
-              },
-              child: const Text('Hesapsız devam et (bu cihazda kalır)'),
-            ),
-          ],
+          ),
         ),
       ),
     );

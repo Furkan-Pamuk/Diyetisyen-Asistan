@@ -7,6 +7,7 @@ import '../models/grocery_category.dart';
 import '../models/inventory_item.dart';
 import '../state/app_store.dart';
 import '../widgets/common.dart';
+import '../widgets/order_qty_sheet.dart';
 import '../widgets/product_name_field.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -24,14 +25,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final filtered = store.inventory.where((e) {
-      if (_lowOnly && !e.isLowStock) return false;
+      if (_lowOnly && !e.isWarning) return false;
       if (_search.isNotEmpty &&
           !e.name.toLowerCase().contains(_search.toLowerCase())) {
         return false;
       }
       return true;
     }).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+      ..sort((a, b) => a.alertLevel.compareTo(b.alertLevel) != 0
+          ? a.alertLevel.compareTo(b.alertLevel)
+          : a.currentStock.compareTo(b.currentStock));
 
     return Scaffold(
       appBar: AppBar(
@@ -42,7 +45,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               Icons.warning,
               color: _lowOnly ? Colors.orange : null,
             ),
-            tooltip: 'Kritik',
+            tooltip: 'Uyarı + Kritik',
             onPressed: () => setState(() => _lowOnly = !_lowOnly),
           ),
           IconButton(
@@ -90,16 +93,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold)),
                             ),
-                            if (item.isLowStock)
+                            if (item.isOutOfStock)
                               StatusBadge(
-                                text: item.isOutOfStock
-                                    ? 'Tükendi'
-                                    : 'Kritik',
+                                text: 'Tükendi',
                                 color: Colors.red,
+                              )
+                            else if (item.isCritical)
+                              StatusBadge(
+                                text: 'Kritik',
+                                color: Colors.red,
+                              )
+                            else if (item.isWarning)
+                              StatusBadge(
+                                text: 'Azalan',
+                                color: Colors.orange,
                               ),
                           ],
                         ),
                         const SizedBox(height: 4),
+                        InkWell(
+                          onTap: () => _openThresholds(context, item),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '${item.category.shortName} • Kalan: ${item.formattedStock()} • Uyarı: ${item.formatAmount(item.warnThreshold)} • Kritik: ${item.formatAmount(item.minThreshold)}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.edit,
+                                  size: 14,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary),
+                            ],
+                          ),
+                        ),
                         InkWell(
                           onTap: () => _openCapacity(context, item),
                           borderRadius: BorderRadius.circular(4),
@@ -108,12 +140,39 @@ class _InventoryScreenState extends State<InventoryScreen> {
                             children: [
                               Flexible(
                                 child: Text(
-                                  '${item.category.shortName} • Kalan: ${item.formattedStock()} • Depo: ${item.formatAmount(item.warehouseStock)}',
+                                  'Depo: ${item.formatAmount(item.warehouseStock)} (düzenle)',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ),
                               const SizedBox(width: 4),
                               Icon(Icons.edit,
+                                  size: 14,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary),
+                            ],
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => _openBatches(context, item),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  'Girişler: ${context.watch<AppStore>().batchesFor(item.id).length} parti (tarih + miktar için dokun)',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.history,
                                   size: 14,
                                   color: Theme.of(context)
                                       .colorScheme
@@ -178,6 +237,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
                             ),
                           ],
                         ),
+                        if (item.isWarning)
+                          Padding(
+                            padding:
+                                const EdgeInsets.only(top: 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    openOrderQtySheet(
+                                  context,
+                                  itemId: item.id,
+                                  suggestedQty:
+                                      suggestedTopUp(
+                                          context.read<AppStore>(),
+                                          item.id),
+                                  reason: item.isOutOfStock
+                                      ? '${item.name} tükendi! Acil sipariş önerilir.'
+                                      : item.isCritical
+                                          ? '${item.name} kritik stokta! Kritik eşiğin altına düştü.'
+                                          : '${item.name} azalan stokta! Uyarı eşiğine yaklaşıyor.',
+                                ),
+                                icon: const Icon(
+                                    Icons.add_shopping_cart,
+                                    size: 18),
+                                label: Text(item.isCritical
+                                    ? 'Sipariş Ver (kritik!)'
+                                    : 'Sipariş Ver'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: item.isCritical
+                                      ? Colors.red
+                                      : Colors.orange.shade800,
+                                  side: BorderSide(
+                                      color: item.isCritical
+                                          ? Colors.red
+                                          : Colors.orange),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -209,6 +307,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
       builder: (_) => CapacitySheet(itemId: item.id),
     );
   }
+
+  void _openThresholds(BuildContext context, InventoryItem item) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ThresholdSheet(itemId: item.id),
+    );
+  }
+
+  void _openBatches(BuildContext context, InventoryItem item) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => BatchListSheet(itemId: item.id),
+    );
+  }
 }
 
 class InventoryFormSheet extends StatefulWidget {
@@ -221,7 +335,8 @@ class InventoryFormSheet extends StatefulWidget {
 class _InventoryFormSheetState extends State<InventoryFormSheet> {
   final _name = TextEditingController();
   final _stock = TextEditingController(text: '1000');
-  final _threshold = TextEditingController(text: '500');
+  final _critical = TextEditingController(text: '500');
+  final _warn = TextEditingController(text: '1000');
   GroceryCategory _cat = GroceryCategory.freshProduce;
   StockUnit _unit = StockUnit.gram;
 
@@ -273,10 +388,18 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
                         ? 'Stok (g)'
                         : 'Stok (adet)')),
             TextField(
-                controller: _threshold,
+                controller: _critical,
                 keyboardType: TextInputType.number,
-                decoration:
-                    const InputDecoration(labelText: 'Kritik eşik')),
+                decoration: const InputDecoration(
+                    labelText: 'Kritik eşik (kırmızı)',
+                    helperText: 'Bu değer ve altı = kritik stok')),
+            TextField(
+                controller: _warn,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Uyarı eşiği (sarı)',
+                    helperText:
+                        'Bu değer ve altı = azalan stok (kritikten büyük olmalı)')),
             const SizedBox(height: 12),
             FilledButton(
               onPressed: _name.text.trim().isEmpty
@@ -284,6 +407,10 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
                   : () {
                       final s =
                           double.tryParse(_stock.text) ?? 0;
+                      final c =
+                          double.tryParse(_critical.text) ?? 0;
+                      var w = double.tryParse(_warn.text) ?? c * 2;
+                      if (w < c) w = c;
                       context.read<AppStore>().addInventoryItem(
                             InventoryItem(
                               name: _name.text.trim(),
@@ -291,8 +418,8 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
                               unit: _unit,
                               currentStock: s,
                               warehouseStock: s,
-                              minThreshold:
-                                  double.tryParse(_threshold.text) ?? 0,
+                              minThreshold: c,
+                              warnThreshold: w,
                             ),
                           );
                       Navigator.pop(context);
@@ -318,33 +445,94 @@ class ReceiveSheet extends StatefulWidget {
 
 class _ReceiveSheetState extends State<ReceiveSheet> {
   final _qty = TextEditingController(text: '1000');
+  final _note = TextEditingController();
+  String? _supplierId;
+
+  @override
+  void dispose() {
+    _qty.dispose();
+    _note.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    _supplierId ??= store.suppliers.isNotEmpty
+        ? store.suppliers.first.id
+        : null;
     return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Mal Kabul — ${widget.name}',
-              style: Theme.of(context).textTheme.titleLarge),
-          TextField(
-              controller: _qty,
-              keyboardType: TextInputType.number,
-              decoration:
-                  const InputDecoration(labelText: 'Gelen miktar')),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: () {
-              final q = double.tryParse(_qty.text) ?? 0;
-              if (q <= 0) return;
-              context.read<AppStore>().receiveShipment(widget.itemId, q);
-              Navigator.pop(context);
-            },
-            child: const Text('Onayla'),
-          ),
-          const SizedBox(height: 16),
-        ],
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Mal Kabul — ${widget.name}',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            TextField(
+                controller: _qty,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Gelen miktar',
+                    border: OutlineInputBorder(),
+                    isDense: true)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String?>(
+              initialValue: _supplierId,
+              decoration: const InputDecoration(
+                  labelText: 'Tedarikçi (arşiv için)',
+                  border: OutlineInputBorder(),
+                  isDense: true),
+              items: [
+                const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Tedarikçisiz')),
+                for (final s in store.suppliers)
+                  DropdownMenuItem<String?>(
+                      value: s.id, child: Text(s.name)),
+              ],
+              onChanged: (v) =>
+                  setState(() => _supplierId = v),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+                controller: _note,
+                decoration: const InputDecoration(
+                    labelText: 'Not (opsiyonel)',
+                    border: OutlineInputBorder(),
+                    isDense: true),
+                maxLines: 2),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () {
+                final q = double.tryParse(
+                        _qty.text.replaceAll(',', '.')) ??
+                    0;
+                if (q <= 0) return;
+                context.read<AppStore>().logDirectReceipt(
+                      itemId: widget.itemId,
+                      quantity: q,
+                      supplierId: _supplierId,
+                      note: _note.text,
+                    );
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Stoğa işlendi ve teslimat arşivine kaydedildi.')),
+                );
+              },
+              child: const Text('Onayla ve Arşive Kaydet'),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -477,6 +665,210 @@ class _CapacitySheetState extends State<CapacitySheet> {
                             store.setWarehouseCapacity(
                                 item.id, _value);
                             Navigator.pop(context);
+                          }
+                        : null,
+                    child: const Text('Kaydet'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Parti giriş geçmişi: her malzemenin stoğa giriş tarihi + miktarı.
+class BatchListSheet extends StatelessWidget {
+  final String itemId;
+  const BatchListSheet({super.key, required this.itemId});
+
+  String _d(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final item = store.itemById(itemId);
+    final batches = store.batchesFor(itemId).reversed.toList();
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Stok Girişleri — ${item?.name ?? ''}',
+              style: Theme.of(context).textTheme.titleLarge),
+          Text(
+              '${batches.length} parti • İmha tutanağındaki "Dolaba Giriş Tarihi" buradan gelir.',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 8),
+          Flexible(
+            child: batches.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('Kayıtlı giriş yok.'),
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: batches.length,
+                    itemBuilder: (ctx, i) {
+                      final b = batches[i];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(
+                            Icons.login_outlined,
+                            size: 20),
+                        title: Text(
+                          item != null
+                              ? item.formatAmount(b.quantity)
+                              : '${b.quantity}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                            '${_d(b.entryDate)} • ${b.source.isEmpty ? 'Kaynaksız' : b.source}'),
+                        trailing: IconButton(
+                          icon: const Icon(
+                              Icons.delete_outline,
+                              size: 20),
+                          tooltip: 'Partiyi sil',
+                          onPressed: () => context
+                              .read<AppStore>()
+                              .deleteBatch(b.id),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+/// Uyarı (sarı) ve kritik (kırmızı) eşiklerini düzenler.
+/// Kalan stok uyarı eşiğine inince "X azalan stok", kritik eşiğe
+/// inince "X kritik stok" uyarısı verilir.
+class ThresholdSheet extends StatefulWidget {
+  final String itemId;
+  const ThresholdSheet({super.key, required this.itemId});
+
+  @override
+  State<ThresholdSheet> createState() => _ThresholdSheetState();
+}
+
+class _ThresholdSheetState extends State<ThresholdSheet> {
+  late final TextEditingController _warnCtrl;
+  late final TextEditingController _criticalCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = context.read<AppStore>().itemById(widget.itemId);
+    _warnCtrl = TextEditingController(
+        text: (item?.warnThreshold ?? 0).toStringAsFixed(0));
+    _criticalCtrl = TextEditingController(
+        text: (item?.minThreshold ?? 0).toStringAsFixed(0));
+  }
+
+  @override
+  void dispose() {
+    _warnCtrl.dispose();
+    _criticalCtrl.dispose();
+    super.dispose();
+  }
+
+  double _parse(TextEditingController c) =>
+      double.tryParse(c.text.replaceAll(',', '.')) ?? -1;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final item = store.itemById(widget.itemId);
+    if (item == null) return const SizedBox.shrink();
+    final w = _parse(_warnCtrl);
+    final c = _parse(_criticalCtrl);
+    final valid = w >= 0 && c >= 0 && w >= c;
+    final unit = item.unit.abbreviation;
+
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Stok Eşikleri — ${item.name}',
+                style: Theme.of(context).textTheme.titleLarge),
+            Text('Kalan: ${item.formattedStock()}',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _warnCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: false),
+              decoration: InputDecoration(
+                labelText: 'Uyarı eşiği (sarı) — $unit',
+                helperText: 'Bu değer ve altı: "${item.name} azalan stok!"',
+                border: const OutlineInputBorder(),
+                prefixIcon:
+                    const Icon(Icons.warning_amber, color: Colors.orange),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _criticalCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: false),
+              decoration: InputDecoration(
+                labelText: 'Kritik eşik (kırmızı) — $unit',
+                helperText: 'Bu değer ve altı: "${item.name} kritik stok!"',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.error, color: Colors.red),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            if (!valid)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Uyarı eşiği 0’dan büyük ve kritik eşikten küçük olamaz.',
+                  style: TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Vazgeç'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: valid
+                        ? () async {
+                            await store.setThresholds(
+                                item.id, w, c);
+                            if (context.mounted) Navigator.pop(context);
                           }
                         : null,
                     child: const Text('Kaydet'),

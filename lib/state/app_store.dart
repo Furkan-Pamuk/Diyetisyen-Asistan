@@ -6,11 +6,16 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/grocery_category.dart';
+import '../models/disposal.dart';
 import '../models/inventory_item.dart';
 import '../models/menu_entry.dart';
 import '../models/recipe.dart';
+import '../models/order_cart.dart';
+import '../models/order_line.dart';
+import '../models/stock_batch.dart';
 import '../models/supplier.dart';
 import '../models/supplier_order.dart';
+import '../models/user_note.dart';
 import '../services/notification_service.dart';
 
 const _storageKey = 'dietitian-assistant-v1';
@@ -35,6 +40,279 @@ class AppStore extends ChangeNotifier {
   List<MenuEntry> weeklyMenu = [];
   DateTime weekStart = DateTime.now();
   DateTime updatedAt = DateTime.now();
+
+  /// Üretim tablosu haftalık mod: gün gün kişi sayısı ("hafta-gün" -> sayı).
+  /// Sağ üstteki tek kutu tüm güne yazar; gün kartından ayrı ayrı değişir.
+  Map<String, int> prodServings = {};
+
+  /// Arşivlik haftalık üretim kayıtları (yeniden bakılabilir).
+  List<ProductionArchive> productionArchives = [];
+
+  // ---------- Sipariş sepeti ----------
+
+  List<OrderCartItem> orderCart = [];
+
+  int get cartCount => orderCart.length;
+
+  double get cartTotalQty =>
+      orderCart.fold(0, (s, e) => s + e.quantity);
+
+  /// Sepete ekle; aynı ürün varsa miktarı birleştirir.
+  Future<void> addToCart({
+    required String itemId,
+    required String name,
+    required String unitKey,
+    required double quantity,
+    String? supplierId,
+  }) async {
+    if (quantity <= 0) return;
+    final i = orderCart.indexWhere((e) => e.itemId == itemId);
+    if (i >= 0) {
+      orderCart[i].quantity += quantity;
+      if (supplierId != null) orderCart[i].supplierId = supplierId;
+    } else {
+      orderCart.add(OrderCartItem(
+        itemId: itemId,
+        name: name,
+        unitKey: unitKey,
+        quantity: quantity,
+        supplierId: supplierId,
+      ));
+    }
+    await save();
+  }
+
+  Future<void> updateCartQty(String id, double qty) async {
+    final i = orderCart.indexWhere((e) => e.id == id);
+    if (i == -1) return;
+    if (qty <= 0) {
+      orderCart.removeAt(i);
+    } else {
+      orderCart[i].quantity = qty;
+    }
+    await save();
+  }
+
+  Future<void> removeFromCart(String id) async {
+    orderCart.removeWhere((e) => e.id == id);
+    await save();
+  }
+
+  Future<void> clearCart() async {
+    orderCart.clear();
+    await save();
+  }
+
+  /// Sepeti tedarikçi siparişine dönüştürür ve sepeti boşaltır.
+  /// Kalemler sipariş notuna yazılır (ürün: miktar).
+  /// [ids] verilirse yalnız o kalemler dönüştürülür.
+  Future<SupplierOrder?> cartToOrder(
+      {String? supplierId, List<String>? ids}) async {
+    final items = ids == null
+        ? List<OrderCartItem>.from(orderCart)
+        : orderCart.where((e) => ids.contains(e.id)).toList();
+    if (items.isEmpty) return null;
+    Supplier supplier = defaultSupplier;
+    if (supplierId != null) {
+      try {
+        supplier =
+            suppliers.firstWhere((s) => s.id == supplierId);
+      } catch (_) {
+        supplier = defaultSupplier;
+      }
+    }
+    final lines = items.map((e) {
+      final sup = e.supplierId != null
+          ? ' [${supplierNameById(e.supplierId!)}]'
+          : '';
+      return '• ${e.name}: ${e.formattedQty()}$sup';
+    }).join('\n');
+    final now = DateTime.now();
+    final order = SupplierOrder(
+      title: 'Sepet siparişi (${items.length} kalem)',
+      supplierName: supplier.name,
+      supplierId: supplier.id,
+      orderDate: now,
+      pickupDate: now.add(const Duration(days: 2)),
+      status: SupplierOrderStatus.scheduled,
+      notes: lines,
+      items: items
+          .map((e) => OrderLine(
+                itemId: e.itemId,
+                name: e.name,
+                unitKey: e.unitKey,
+                orderedQty: e.quantity,
+              ))
+          .toList(),
+    );
+    supplierOrders.add(order);
+    orderCart.removeWhere((e) => items.any((i) => i.id == e.id));
+    await save();
+    await NotificationService.instance.reschedule(order);
+    return order;
+  }
+
+  /// Sepetteki tedarikçi gruplarının her birini ayrı siparişe dönüştürür.
+  Future<List<SupplierOrder>> cartToOrdersByGroup() async {
+    final groups = cartGroupedBySupplier();
+    final created = <SupplierOrder>[];
+    for (final entry in groups.entries) {
+      final order = await cartToOrder(
+        supplierId: entry.key == 'unassigned' ? null : entry.key,
+        ids: entry.value.map((e) => e.id).toList(),
+      );
+      if (order != null) created.add(order);
+    }
+    return created;
+  }
+
+  /// Sepet kalemlerini tedarikçiye göre gruplar.
+  /// Anahtar: supplierId veya 'unassigned'.
+  Map<String, List<OrderCartItem>> cartGroupedBySupplier() {
+    final map = <String, List<OrderCartItem>>{};
+    for (final e in orderCart) {
+      map.putIfAbsent(e.supplierId ?? 'unassigned', () => []).add(e);
+    }
+    // Tedarikçi adına göre sıralı grup listesi için çağrılan yerde sıralanır.
+    return map;
+  }
+
+  List<String> cartGroupOrder() {
+    final keys = cartGroupedBySupplier().keys.toList();
+    keys.sort((a, b) {
+      if (a == 'unassigned') return 1;
+      if (b == 'unassigned') return -1;
+      return supplierNameById(a)
+          .toLowerCase()
+          .compareTo(supplierNameById(b).toLowerCase());
+    });
+    return keys;
+  }
+
+  Future<void> setCartItemSupplier(String id, String? supplierId) async {
+    final i = orderCart.indexWhere((e) => e.id == id);
+    if (i == -1) return;
+    orderCart[i].supplierId = supplierId;
+    await save();
+  }
+
+  // ---------- Profil (fotoğraf + isim + ünvan) ----------
+
+  String profileName = '';
+  String profileTitle = '';
+  /// JPEG baytlarının base64 hali (küçük avatar, cihazda + bulutta saklanır).
+  String profilePhotoBase64 = '';
+
+  bool get hasProfile =>
+      profileName.trim().isNotEmpty || profileTitle.trim().isNotEmpty;
+
+  /// Karşılama satırı: "Hoşgeldiniz, Melike" / boşsa "Hoş Geldiniz".
+  String get greetingName {
+    final n = profileName.trim();
+    if (n.isEmpty) return '';
+    return n.split(RegExp(r'\s+')).first;
+  }
+
+  Future<void> updateProfile({String? name, String? title}) async {
+    if (name != null) profileName = name.trim();
+    if (title != null) profileTitle = title.trim();
+    await save();
+  }
+
+  Future<void> setProfilePhoto(String base64) async {
+    profilePhotoBase64 = base64;
+    await save();
+  }
+
+  Future<void> clearProfilePhoto() async {
+    profilePhotoBase64 = '';
+    await save();
+  }
+
+  // ---------- Notlar (yazılı + sesli) ----------
+
+  List<UserNote> notes = [];
+
+  /// Ses baytları: SADECE bu cihazda (ayrı anahtar, buluta gitmez).
+  final Map<String, String> _noteAudioBase64 = {};
+
+  bool noteHasAudio(String id) =>
+      _noteAudioBase64.containsKey(id) ||
+      notes.any((n) => n.id == id && n.hasAudio);
+
+  String? noteAudioBase64(String id) => _noteAudioBase64[id];
+
+  Future<UserNote> addNote(String text, {bool hasAudio = false}) async {
+    final note = UserNote(text: text.trim(), hasAudio: hasAudio);
+    notes.insert(0, note);
+    await save();
+    return note;
+  }
+
+  Future<void> updateNoteText(String id, String text) async {
+    final i = notes.indexWhere((n) => n.id == id);
+    if (i == -1) return;
+    notes[i].text = text.trim();
+    await save();
+  }
+
+  Future<void> deleteNote(String id) async {
+    notes.removeWhere((n) => n.id == id);
+    _noteAudioBase64.remove(id);
+    await _saveAudioLocal();
+    await NotificationService.instance.cancelNote(id);
+    await save();
+  }
+
+  /// Nota tarih-saat hatırlatıcısı kurar (null = iptal).
+  Future<void> setNoteReminder(String id, DateTime? at) async {
+    final i = notes.indexWhere((n) => n.id == id);
+    if (i == -1) return;
+    notes[i].reminderAt = at;
+    if (at == null) {
+      await NotificationService.instance.cancelNote(id);
+    } else {
+      await NotificationService.instance
+          .scheduleNoteReminder(id, notes[i].text, at);
+    }
+    await save();
+  }
+
+  Future<void> setNoteAudio(String id, String base64) async {
+    _noteAudioBase64[id] = base64;
+    final i = notes.indexWhere((n) => n.id == id);
+    if (i >= 0) notes[i].hasAudio = true;
+    await _saveAudioLocal();
+    await save();
+  }
+
+  Future<void> _saveAudioLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          '$_storageKey-note-audio', jsonEncode(_noteAudioBase64));
+    } catch (e) {
+      debugPrint('Audio save failed: $e');
+    }
+  }
+
+  Future<void> _loadAudioLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_storageKey-note-audio');
+      if (raw == null) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      _noteAudioBase64
+        ..clear()
+        ..addEntries(map.entries.map((e) =>
+            MapEntry(e.key, e.value as String)));
+      // Silinmiş notların seslerini temizle.
+      _noteAudioBase64.removeWhere(
+          (id, _) => !notes.any((n) => n.id == id));
+    } catch (e) {
+      debugPrint('Audio load failed: $e');
+    }
+  }
 
   /// True when Firebase initialized (set by main). Without it: local mode.
   bool firebaseReady = false;
@@ -89,6 +367,208 @@ class AppStore extends ChangeNotifier {
   Future<void> markPickedUp(SupplierOrder order) async {
     order.status = SupplierOrderStatus.pickedUp;
     await updateOrder(order);
+  }
+
+  /// "Sipariş Verdim": sipariş durumunu bekliyora alır.
+  Future<void> markOrdered(SupplierOrder order) async {
+    order.status = SupplierOrderStatus.ordered;
+    await updateOrder(order);
+  }
+
+  // ---------- Stok parti girişleri (giriş tarihi + miktar) ----------
+
+  List<StockBatch> stockBatches = [];
+
+  List<StockBatch> batchesFor(String itemId) {
+    final list =
+        stockBatches.where((b) => b.itemId == itemId).toList();
+    list.sort((a, b) => a.entryDate.compareTo(b.entryDate));
+    return list;
+  }
+
+  DateTime? oldestEntryDate(String itemId) {
+    final list = batchesFor(itemId);
+    return list.isEmpty ? null : list.first.entryDate;
+  }
+
+  Future<void> _addBatch(
+      String itemId, double qty, String source) async {
+    if (qty <= 0) return;
+    stockBatches.add(StockBatch(
+      itemId: itemId,
+      quantity: qty,
+      source: source,
+    ));
+  }
+
+  Future<void> deleteBatch(String id) async {
+    stockBatches.removeWhere((b) => b.id == id);
+    await save();
+  }
+
+  // ---------- İmha tutanağı (şablon + formlar) ----------
+
+  DisposalTemplate disposalTemplate = DisposalTemplate();
+  List<DisposalForm> disposalForms = [];
+
+  Future<void> saveDisposalTemplate(DisposalTemplate t) async {
+    disposalTemplate = t;
+    await save();
+  }
+
+  Future<void> addDisposalForm(DisposalForm f) async {
+    disposalForms.insert(0, f);
+    await save();
+  }
+
+  Future<void> updateDisposalForm(DisposalForm f) async {
+    final i = disposalForms.indexWhere((e) => e.id == f.id);
+    if (i == -1) return;
+    disposalForms[i] = f;
+    await save();
+  }
+
+  Future<void> deleteDisposalForm(String id) async {
+    disposalForms.removeWhere((e) => e.id == id);
+    await save();
+  }
+
+  /// İmha miktarlarını stoktan düşer (bir kez; tekrar basılamaz).
+  Future<void> deductDisposalStock(String formId) async {
+    DisposalForm? form;
+    try {
+      form = disposalForms.firstWhere((e) => e.id == formId);
+    } catch (_) {
+      return;
+    }
+    if (form.stockDeducted) return;
+    for (final line in form.lines) {
+      InventoryItem? item;
+      if (line.itemId != null) {
+        item = itemById(line.itemId!);
+      }
+      item ??= itemByName(line.productName);
+      if (item != null && line.quantity > 0) {
+        item.currentStock =
+            (item.currentStock - line.quantity)
+                .clamp(0, double.infinity)
+                .toDouble();
+      }
+    }
+    form.stockDeducted = true;
+    await save();
+  }
+
+  // ---------- Teslim alma (mal kabul) + arşiv ----------
+
+  List<GoodsReceipt> receipts = [];
+
+  InventoryItem? itemByName(String name) {
+    final q = name.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    try {
+      return inventory
+          .firstWhere((e) => e.name.trim().toLowerCase() == q);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Siparişi teslim alır: gelen miktarlar stoğa işlenir, sipariş
+  /// "Teslim Alındı" olur, detay arşive kaydedilir.
+  /// Silinen kalemler listede olmaz; yeni ürünler stoklara açılır.
+  Future<GoodsReceipt?> receiveOrder(
+    String orderId,
+    List<ReceiptInput> inputs, {
+    String note = '',
+  }) async {
+    final oi = supplierOrders.indexWhere((e) => e.id == orderId);
+    if (oi == -1) return null;
+    final order = supplierOrders[oi];
+    final lines = <ReceiptLine>[];
+    for (final input in inputs) {
+      InventoryItem? item = itemById(input.itemId ?? '');
+      item ??= itemByName(input.name);
+      if (item == null && input.receivedQty > 0) {
+        item = InventoryItem(
+          name: input.name.trim(),
+          category: input.category ?? GroceryCategory.freshProduce,
+          unit: input.unitKey == 'piece'
+              ? StockUnit.piece
+              : StockUnit.gram,
+          currentStock: 0,
+          warehouseStock: 0,
+          minThreshold: 0,
+        );
+        inventory.add(item);
+      }
+      if (item != null && input.receivedQty > 0) {
+        item.currentStock += input.receivedQty;
+        item.warehouseStock += input.receivedQty;
+        await _addBatch(
+            item.id, input.receivedQty, 'Sipariş: ${order.title}');
+      }
+      lines.add(ReceiptLine(
+        name: input.name.trim(),
+        unitKey: input.unitKey,
+        orderedQty: input.orderedQty,
+        receivedQty: input.receivedQty,
+      ));
+    }
+    order.status = SupplierOrderStatus.pickedUp;
+    final receipt = GoodsReceipt(
+      orderId: order.id,
+      orderTitle: order.title,
+      supplierName: order.supplierName,
+      supplierId: order.supplierId,
+      lines: lines,
+      note: note.trim(),
+    );
+    receipts.insert(0, receipt);
+    await save();
+    await NotificationService.instance.reschedule(order);
+    await generateGroceryList();
+    return receipt;
+  }
+
+  /// Stok ekranından doğrudan mal kabul (siparişsiz): stoğa işlenir
+  /// ve teslimat arşivine kaydedilir.
+  Future<GoodsReceipt?> logDirectReceipt({
+    required String itemId,
+    required double quantity,
+    String? supplierId,
+    String note = '',
+  }) async {
+    final item = itemById(itemId);
+    if (item == null || quantity <= 0) return null;
+    item.currentStock += quantity;
+    item.warehouseStock += quantity;
+    String supName = '';
+    if (supplierId != null) supName = supplierNameById(supplierId);
+    await _addBatch(
+        item.id, quantity, supName.isEmpty ? 'Doğrudan' : supName);
+    final receipt = GoodsReceipt(
+      orderTitle: 'Doğrudan mal kabul',
+      supplierName: supName,
+      supplierId: supplierId,
+      lines: [
+        ReceiptLine(
+          name: item.name,
+          unitKey: item.unit.key,
+          orderedQty: quantity,
+          receivedQty: quantity,
+        ),
+      ],
+      note: note.trim(),
+    );
+    receipts.insert(0, receipt);
+    await save();
+    return receipt;
+  }
+
+  Future<void> deleteReceipt(String id) async {
+    receipts.removeWhere((e) => e.id == id);
+    await save();
   }
 
   // ---------- Supplier directory ----------
@@ -160,9 +640,41 @@ class AppStore extends ChangeNotifier {
   // ---------- Inventory ----------
 
   List<InventoryItem> get lowStockItems {
-    final list = inventory.where((e) => e.isLowStock).toList();
+    final list = inventory.where((e) => e.isWarning).toList();
     list.sort((a, b) => a.currentStock.compareTo(b.currentStock));
     return list;
+  }
+
+  /// Kırmızı: kritik eşikte/below. Sarı: uyarı eşiğinde ama kritik üstü.
+  List<InventoryItem> get criticalStockItems {
+    final list = inventory.where((e) => e.isCritical).toList();
+    list.sort((a, b) => a.currentStock.compareTo(b.currentStock));
+    return list;
+  }
+
+  List<InventoryItem> get warningStockItems {
+    final list = inventory
+        .where((e) => e.isWarning && !e.isCritical)
+        .toList();
+    list.sort((a, b) => a.currentStock.compareTo(b.currentStock));
+    return list;
+  }
+
+  List<String> get stockAlertMessages => inventory
+      .where((e) => e.isWarning)
+      .map((e) => e.alertMessage())
+      .toList();
+
+  Future<void> setThresholds(
+      String itemId, double warn, double critical) async {
+    final item = itemById(itemId);
+    if (item == null) return;
+    var w = warn.clamp(0, double.infinity).toDouble();
+    var c = critical.clamp(0, double.infinity).toDouble();
+    if (w < c) w = c; // uyarı kritik altına düşemez
+    item.warnThreshold = w;
+    item.minThreshold = c;
+    await save();
   }
 
   InventoryItem? itemById(String id) {
@@ -193,6 +705,7 @@ class AppStore extends ChangeNotifier {
     if (item == null) return;
     item.currentStock += qty;
     item.warehouseStock += qty;
+    await _addBatch(itemId, qty, 'Mal kabul');
     await save();
   }
 
@@ -448,6 +961,349 @@ class AppStore extends ChangeNotifier {
     await generateGroceryList();
   }
 
+  /// Yemek adına göre tarif bulur (birebir, yoksa büyük/küçük harf
+  /// duyarsız). Bulamazsa null döner — içe aktarma bunu "reçete eksik"
+  /// uyarısı için kullanır.
+  Recipe? findRecipeByName(String name) {
+    final q = name.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    try {
+      return recipes.firstWhere((r) => r.name.trim().toLowerCase() == q);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Bulamazsa boş reçeteli taslak tarif oluşturur (reçete eksik
+  /// uyarısı verir, kullanıcı Reçeteler sayfasında doldurur).
+  Future<Recipe> findOrCreateRecipeByName(String name) async {
+    final found = findRecipeByName(name);
+    if (found != null) return found;
+    final created = Recipe(
+      name: name.trim(),
+      description: 'Menüden aktarıldı — reçete bekleniyor',
+      servingsDefault: 1,
+      ingredients: [],
+    );
+    recipes.add(created);
+    await save();
+    return created;
+  }
+
+  bool recipeNeedsAttention(Recipe recipe) => recipe.ingredients.isEmpty;
+
+  // ---------- Haftalık menü üretim hesabı (reçeteler tek kişilik) ----------
+
+  static const int defaultProdServings = 100;
+
+  String _prodKey(int week, int day) => '$week-$day';
+
+  /// Günlük kişi sayısı (üretim tablosu). Varsayılan 100.
+  int prodServingsFor(int week, int day) =>
+      prodServings[_prodKey(week, day)] ?? defaultProdServings;
+
+  Future<void> setProdServings(int week, int day, int value) async {
+    prodServings[_prodKey(week, day)] = value.clamp(1, 10000);
+    await save();
+  }
+
+  /// Sağ üstteki tek kutu: tüm haftaya aynı sayıyı yazar.
+  Future<void> setProdServingsWeek(int week, int value) async {
+    final v = value.clamp(1, 10000);
+    for (var d = 0; d < 7; d++) {
+      prodServings[_prodKey(week, d)] = v;
+    }
+    await save();
+  }
+
+  /// Haftanın gün gün kişi sayıları (arşiv + toplam için).
+  Map<int, int> prodServingsOfWeek(int week) => {
+        for (var d = 0; d < 7; d++) d: prodServingsFor(week, d),
+      };
+
+  /// Belirli günün malzeme toplamları: itemId -> toplam gram/adet.
+  /// Reçeteler tek kişilik kabul edilir: toplam = porsiyon_miktarı × porsiyon.
+  Map<String, double> menuDayTotals(int dayIndex, [int weekIndex = 0]) {
+    final totals = <String, double>{};
+    for (final e in weeklyMenu) {
+      if (e.dayIndex != dayIndex || e.weekIndex != weekIndex) continue;
+      final recipe = recipeById(e.recipeId);
+      if (recipe == null) continue;
+      for (final ing in recipe.ingredients) {
+        totals[ing.itemId] =
+            (totals[ing.itemId] ?? 0) + ing.amountPerServing * e.servings;
+      }
+    }
+    return totals;
+  }
+
+  /// Üretim tablosu için: günün tüm yemekleri GLOBAL kişi sayısıyla
+  /// hesaplanır (öğünlük kişi kutusu yok, sağ üstteki tek sayı geçerli).
+  Map<String, double> menuDayTotalsForServings(
+      int dayIndex, int weekIndex, int servings) {
+    final totals = <String, double>{};
+    for (final e in weeklyMenu) {
+      if (e.dayIndex != dayIndex || e.weekIndex != weekIndex) continue;
+      final recipe = recipeById(e.recipeId);
+      if (recipe == null) continue;
+      for (final ing in recipe.ingredients) {
+        totals[ing.itemId] =
+            (totals[ing.itemId] ?? 0) + ing.amountPerServing * servings;
+      }
+    }
+    return totals;
+  }
+
+  /// Tüm haftanın malzeme toplamları (7 gün).
+  Map<String, double> menuWeekTotals([int weekIndex = 0]) {
+    final totals = <String, double>{};
+    for (var d = 0; d < 7; d++) {
+      menuDayTotals(d, weekIndex).forEach((k, v) {
+        totals[k] = (totals[k] ?? 0) + v;
+      });
+    }
+    return totals;
+  }
+
+  /// Haftanın tamamı GLOBAL kişi sayısıyla (üretim tablosu).
+  Map<String, double> menuWeekTotalsForServings(
+      int weekIndex, int servings) {
+    final totals = <String, double>{};
+    for (var d = 0; d < 7; d++) {
+      menuDayTotalsForServings(d, weekIndex, servings).forEach((k, v) {
+        totals[k] = (totals[k] ?? 0) + v;
+      });
+    }
+    return totals;
+  }
+
+  /// Haftanın tamamı GÜN GÜN kişi sayılarıyla (üretim tablosu yeni davranış).
+  Map<String, double> menuWeekTotalsForDailyServings(int weekIndex) {
+    final totals = <String, double>{};
+    for (var d = 0; d < 7; d++) {
+      menuDayTotalsForServings(d, weekIndex, prodServingsFor(weekIndex, d))
+          .forEach((k, v) {
+        totals[k] = (totals[k] ?? 0) + v;
+      });
+    }
+    return totals;
+  }
+
+  /// Kümülatif gün sonu stok projeksiyonu: hafta başı stoktan başlayıp
+  /// 0..dayIndex günlerinin harcamalarını düşer.
+  /// Dönen map: itemId -> o gün sonu kalan (gün gün kişi sayılarıyla).
+  Map<String, double> endOfDayStock(int dayIndex, int weekIndex) {
+    final cumulative = <String, double>{};
+    for (var d = 0; d <= dayIndex; d++) {
+      menuDayTotalsForServings(d, weekIndex, prodServingsFor(weekIndex, d))
+          .forEach((k, v) {
+        cumulative[k] = (cumulative[k] ?? 0) + v;
+      });
+    }
+    final result = <String, double>{};
+    for (final item in inventory) {
+      result[item.id] = item.currentStock - (cumulative[item.id] ?? 0);
+    }
+    return result;
+  }
+
+  // ---------- Üretim arşivi ----------
+
+  Future<ProductionArchive> archiveWeekProduction(int weekIndex) async {
+    final servings = prodServingsOfWeek(weekIndex);
+    final totals = menuWeekTotalsForDailyServings(weekIndex);
+    final names = <String, String>{};
+    final units = <String, String>{};
+    for (final id in totals.keys) {
+      final item = itemById(id);
+      names[id] = item?.name ?? '?';
+      units[id] = item?.unit.key ?? 'gram';
+    }
+    final archive = ProductionArchive(
+      weekIndex: weekIndex,
+      weekLabel: MenuEntry.weeks[weekIndex],
+      servingsByDay: servings,
+      totals: totals,
+      itemNames: names,
+      itemUnits: units,
+    );
+    productionArchives.insert(0, archive);
+    await save();
+    return archive;
+  }
+
+  Future<void> deleteArchive(String id) async {
+    productionArchives.removeWhere((a) => a.id == id);
+    await save();
+  }
+
+  /// Reçetesi eksik (hiç malzemesi yok) menü satırları — uyarı için.
+  List<MenuEntry> menuEntriesMissingRecipe([int? weekIndex]) {
+    return weeklyMenu.where((e) {
+      if (weekIndex != null && e.weekIndex != weekIndex) return false;
+      final r = recipeById(e.recipeId);
+      return r == null || r.ingredients.isEmpty;
+    }).toList();
+  }
+
+  /// Günlük üretim: o günün tüm öğünlerini stoktan düşer.
+  Future<Map<String, double>> produceMenuDay(int dayIndex,
+      [int weekIndex = 0]) async {
+    final entries = weeklyMenu
+        .where((e) => e.dayIndex == dayIndex && e.weekIndex == weekIndex)
+        .toList();
+    final totals = menuDayTotals(dayIndex, weekIndex);
+    totals.forEach((itemId, amount) {
+      final item = itemById(itemId);
+      if (item != null) {
+        item.currentStock =
+            (item.currentStock - amount).clamp(0, double.infinity).toDouble();
+      }
+    });
+    for (final e in entries) {
+      final recipe = recipeById(e.recipeId);
+      productionLogs.insert(
+        0,
+        ProductionLog(
+          recipeId: e.recipeId,
+          recipeName: recipe?.name ?? 'Menü yemeği',
+          servingsMade: e.servings,
+          deductions: {
+            for (final ing in (recipe?.ingredients ?? <RecipeIngredient>[]))
+              ing.itemId: ing.amountPerServing * e.servings,
+          },
+        ),
+      );
+    }
+    await save();
+    await generateGroceryList();
+    return totals;
+  }
+
+  /// Günlük üretim (üretim tablosu): tüm öğünler GLOBAL kişi sayısıyla.
+  Future<Map<String, double>> produceMenuDayForServings(
+      int dayIndex, int weekIndex, int servings) async {
+    final entries = weeklyMenu
+        .where((e) => e.dayIndex == dayIndex && e.weekIndex == weekIndex)
+        .toList();
+    final totals = menuDayTotalsForServings(dayIndex, weekIndex, servings);
+    totals.forEach((itemId, amount) {
+      final item = itemById(itemId);
+      if (item != null) {
+        item.currentStock =
+            (item.currentStock - amount).clamp(0, double.infinity).toDouble();
+      }
+    });
+    for (final e in entries) {
+      final recipe = recipeById(e.recipeId);
+      productionLogs.insert(
+        0,
+        ProductionLog(
+          recipeId: e.recipeId,
+          recipeName: recipe?.name ?? 'Menü yemeği',
+          servingsMade: servings,
+          deductions: {
+            for (final ing in (recipe?.ingredients ?? <RecipeIngredient>[]))
+              ing.itemId: ing.amountPerServing * servings,
+          },
+        ),
+      );
+    }
+    await save();
+    await generateGroceryList();
+    return totals;
+  }
+
+  /// Haftalık üretim: 7 günün tamamını tek seferde stoktan düşer.
+  Future<Map<String, double>> produceMenuWeek([int weekIndex = 0]) async {
+    final totals = menuWeekTotals(weekIndex);
+    totals.forEach((itemId, amount) {
+      final item = itemById(itemId);
+      if (item != null) {
+        item.currentStock =
+            (item.currentStock - amount).clamp(0, double.infinity).toDouble();
+      }
+    });
+    productionLogs.insert(
+      0,
+      ProductionLog(
+        recipeId: 'haftalik-menu-$weekIndex',
+        recipeName: 'Haftalık menü (${MenuEntry.weeks[weekIndex]})',
+        servingsMade:
+            weeklyMenu.where((e) => e.weekIndex == weekIndex).fold<int>(
+                0, (s, e) => s + e.servings),
+        deductions: totals,
+      ),
+    );
+    await save();
+    await generateGroceryList();
+    return totals;
+  }
+
+  /// Haftalık üretim (üretim tablosu): 7 gün GLOBAL kişi sayısıyla.
+  Future<Map<String, double>> produceMenuWeekForServings(
+      int weekIndex, int servings) async {
+    final totals = menuWeekTotalsForServings(weekIndex, servings);
+    totals.forEach((itemId, amount) {
+      final item = itemById(itemId);
+      if (item != null) {
+        item.currentStock =
+            (item.currentStock - amount).clamp(0, double.infinity).toDouble();
+      }
+    });
+    final count =
+        weeklyMenu.where((e) => e.weekIndex == weekIndex).length;
+    productionLogs.insert(
+      0,
+      ProductionLog(
+        recipeId: 'haftalik-menu-$weekIndex',
+        recipeName:
+            'Haftalık menü (${MenuEntry.weeks[weekIndex]}, $servings kişi)',
+        servingsMade: servings * count,
+        deductions: totals,
+      ),
+    );
+    await save();
+    await generateGroceryList();
+    return totals;
+  }
+
+  /// Günlük üretim (üretim tablosu): o günün kayıtlı günlük kişi sayısıyla.
+  Future<Map<String, double>> produceMenuDayForDaily(
+      int dayIndex, int weekIndex) async {
+    return produceMenuDayForServings(
+        dayIndex, weekIndex, prodServingsFor(weekIndex, dayIndex));
+  }
+
+  /// Haftalık üretim (üretim tablosu): gün gün kişi sayılarıyla.
+  Future<Map<String, double>> produceMenuWeekForDaily(
+      int weekIndex) async {
+    final totals = menuWeekTotalsForDailyServings(weekIndex);
+    totals.forEach((itemId, amount) {
+      final item = itemById(itemId);
+      if (item != null) {
+        item.currentStock =
+            (item.currentStock - amount).clamp(0, double.infinity).toDouble();
+      }
+    });
+    final totalServings = weeklyMenu
+        .where((e) => e.weekIndex == weekIndex)
+        .fold<int>(0, (s, e) => s + prodServingsFor(weekIndex, e.dayIndex));
+    productionLogs.insert(
+      0,
+      ProductionLog(
+        recipeId: 'haftalik-menu-$weekIndex',
+        recipeName:
+            'Haftalık menü (${MenuEntry.weeks[weekIndex]}, gün gün kişi)',
+        servingsMade: totalServings,
+        deductions: totals,
+      ),
+    );
+    await save();
+    await generateGroceryList();
+    return totals;
+  }
+
   Map<GroceryCategory, List<GroceryItem>> groceryGrouped() {
     return {
       for (final c in GroceryCategory.values)
@@ -472,6 +1328,21 @@ class AppStore extends ChangeNotifier {
         'plan': weeklyPlan.map((e) => e.toJson()).toList(),
         'suppliers': suppliers.map((e) => e.toJson()).toList(),
         'menu': weeklyMenu.map((e) => e.toJson()).toList(),
+        'prodServings': prodServings,
+        'archives':
+            productionArchives.map((e) => e.toJson()).toList(),
+        'cart': orderCart.map((e) => e.toJson()).toList(),
+        'receipts': receipts.map((e) => e.toJson()).toList(),
+        'batches': stockBatches.map((e) => e.toJson()).toList(),
+        'disposalTemplate': disposalTemplate.toJson(),
+        'disposalForms':
+            disposalForms.map((e) => e.toJson()).toList(),
+        'profile': {
+          'name': profileName,
+          'title': profileTitle,
+          'photo': profilePhotoBase64,
+        },
+        'notes': notes.map((e) => e.toJson()).toList(),
         'weekStart': weekStart.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
@@ -542,6 +1413,93 @@ class AppStore extends ChangeNotifier {
     } catch (_) {
       weeklyMenu = [];
     }
+    try {
+      prodServings = ((j['prodServings'] as Map?) ?? {}).map(
+        (k, v) => MapEntry(k as String, (v as num).toInt()),
+      );
+    } catch (_) {
+      prodServings = {};
+    }
+    try {
+      productionArchives = ((j['archives'] as List?) ?? [])
+          .map((e) =>
+              ProductionArchive.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      productionArchives = [];
+    }
+    try {
+      orderCart = ((j['cart'] as List?) ?? [])
+          .map((e) =>
+              OrderCartItem.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      orderCart = [];
+    }
+    try {
+      receipts = ((j['receipts'] as List?) ?? [])
+          .map((e) =>
+              GoodsReceipt.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      receipts = [];
+    }
+    try {
+      stockBatches = ((j['batches'] as List?) ?? [])
+          .map((e) =>
+              StockBatch.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      stockBatches = [];
+    }
+    try {
+      if (j['disposalTemplate'] != null) {
+        disposalTemplate = DisposalTemplate.fromJson(
+            Map<String, dynamic>.from(j['disposalTemplate'] as Map));
+      }
+    } catch (_) {}
+    try {
+      disposalForms = ((j['disposalForms'] as List?) ?? [])
+          .map((e) =>
+              DisposalForm.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      disposalForms = [];
+    }
+    // Eski kayıtlar: partisi olmayan ürünlere mevcut stoktan açılış partisi.
+    if (inventory.isNotEmpty) {
+      final withBatch = stockBatches.map((b) => b.itemId).toSet();
+      var added = false;
+      for (final item in inventory) {
+        if (!withBatch.contains(item.id) && item.currentStock > 0) {
+          stockBatches.add(StockBatch(
+            itemId: item.id,
+            quantity: item.currentStock,
+            source: 'Mevcut stok',
+          ));
+          added = true;
+        }
+      }
+      if (added) _saveLocal();
+    }
+    try {
+      final p = (j['profile'] as Map?) ?? {};
+      profileName = (p['name'] as String?) ?? '';
+      profileTitle = (p['title'] as String?) ?? '';
+      profilePhotoBase64 = (p['photo'] as String?) ?? '';
+    } catch (_) {
+      profileName = '';
+      profileTitle = '';
+      profilePhotoBase64 = '';
+    }
+    try {
+      notes = ((j['notes'] as List?) ?? [])
+          .map((e) =>
+              UserNote.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      notes = [];
+    }
     weekStart = DateTime.tryParse(j['weekStart'] as String? ?? '') ??
         DateTime.now();
     updatedAt = DateTime.tryParse(j['updatedAt'] as String? ?? '') ??
@@ -556,6 +1514,7 @@ class AppStore extends ChangeNotifier {
       final raw = prefs.getString(_storageKey);
       if (raw == null) return false;
       _applySnapshot(jsonDecode(raw) as Map<String, dynamic>);
+      await _loadAudioLocal();
       return true;
     } catch (e) {
       debugPrint('Load failed: $e');
@@ -673,6 +1632,13 @@ class AppStore extends ChangeNotifier {
     final chickpea = mk('Nohut', GroceryCategory.dryGoods, StockUnit.gram, 2500, 4000, 1000);
     inventory = [tomato, cucumber, apple, lentils, rice, oats, chicken, milk, eggs,
       potato, onion, lettuce, banana, mandarin, orange, mince, yogurt, bulgur, chickpea];
+    for (final item in inventory) {
+      stockBatches.add(StockBatch(
+        itemId: item.id,
+        quantity: item.currentStock,
+        source: 'Başlangıç stoku',
+      ));
+    }
 
     RecipeIngredient ing(InventoryItem item, double amount) =>
         RecipeIngredient(itemId: item.id, amountPerServing: amount);

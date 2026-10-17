@@ -31,7 +31,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
       ..sort((a, b) => a.name.compareTo(b.name));
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Üretim'),
+        title: const Text('Tarifler'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),

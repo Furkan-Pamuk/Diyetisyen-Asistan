@@ -7,10 +7,11 @@ import '../main.dart';
 import '../models/grocery_category.dart';
 import '../models/inventory_item.dart';
 import '../models/recipe.dart';
+import '../services/pdf_service.dart';
 import '../state/app_store.dart';
 import '../widgets/common.dart';
 import '../widgets/product_name_field.dart';
-import 'menu_screen.dart';
+import 'production_table_screen.dart';
 
 class GroceryListScreen extends StatelessWidget {
   const GroceryListScreen({super.key});
@@ -24,6 +25,13 @@ class GroceryListScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Alışveriş Listesi'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'PDF olarak kaydet/paylaş',
+            onPressed: store.groceryItems.isEmpty
+                ? null
+                : () => _sharePdf(context),
+          ),
           IconButton(
             icon: const Icon(Icons.share),
             tooltip: 'Paylaş',
@@ -76,12 +84,13 @@ class GroceryListScreen extends StatelessWidget {
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const MenuScreen()),
+                          builder: (_) =>
+                              const ProductionTableScreen()),
                     ),
-                    icon: const Icon(Icons.calendar_month),
+                    icon: const Icon(Icons.table_chart),
                     label: Text(store.groceryUsesMenu
-                        ? 'Menü Programı (${store.weeklyMenu.length} öğün)'
-                        : 'Menü Programı (boş — plan kullanılıyor)'),
+                        ? 'Üretim Tablosu (${store.weeklyMenu.length} öğün)'
+                        : 'Üretim Tablosu (menü boş — plan kullanılıyor)'),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -198,6 +207,36 @@ class GroceryListScreen extends StatelessWidget {
       isScrollControlled: true,
       builder: (_) => const WeeklyPlanSheet(),
     );
+  }
+
+  Future<void> _sharePdf(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final groups = <String, List<Map<String, String>>>{};
+    for (final cat in GroceryCategory.values) {
+      final items =
+          store.groceryItems.where((e) => e.category == cat).toList();
+      if (items.isEmpty) continue;
+      groups[cat.displayName] = items
+          .map((e) => {
+                'name':
+                    '${e.name}${e.isPurchased ? " (alindi)" : ""}',
+                'qty': e.formattedRequired(),
+              })
+          .toList();
+    }
+    try {
+      await PdfService.shareGroceryPdf(
+        weekLabel: 'Hafta: ${fmtDay(store.weekStart)}',
+        groups: groups,
+        filename: 'alisveris-listesi.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF oluşturulamadı: $e')),
+        );
+      }
+    }
   }
 
   void _openAdd(BuildContext context) {

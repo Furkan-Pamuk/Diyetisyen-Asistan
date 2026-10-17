@@ -105,6 +105,64 @@ class ProductionLog {
       };
 }
 
+/// Arşivlik haftalık üretim kaydı: hangi hafta, gün gün kaç kişi,
+/// toplam ne kadar malzeme harcandı. Geri dönüp bakılabilir.
+class ProductionArchive {
+  final String id;
+  DateTime date;
+  int weekIndex;
+  String weekLabel;
+  Map<int, int> servingsByDay; // dayIndex -> kişi sayısı
+  Map<String, double> totals; // itemId -> toplam gram/adet
+  Map<String, String> itemNames; // itemId -> ürün adı (silinirse de görünsün)
+  Map<String, String> itemUnits; // itemId -> 'gram' | 'piece'
+
+  ProductionArchive({
+    String? id,
+    DateTime? date,
+    required this.weekIndex,
+    required this.weekLabel,
+    required this.servingsByDay,
+    required this.totals,
+    required this.itemNames,
+    required this.itemUnits,
+  })  : id = id ?? _uuid.v4(),
+        date = date ?? DateTime.now();
+
+  factory ProductionArchive.fromJson(Map<String, dynamic> j) =>
+      ProductionArchive(
+        id: j['id'] as String?,
+        date: DateTime.tryParse(j['date'] as String? ?? '') ??
+            DateTime.now(),
+        weekIndex: (j['weekIndex'] as num?)?.toInt() ?? 0,
+        weekLabel: (j['weekLabel'] as String?) ?? '',
+        servingsByDay: ((j['servingsByDay'] as Map?) ?? {}).map(
+          (k, v) => MapEntry(int.parse(k as String), (v as num).toInt()),
+        ),
+        totals: ((j['totals'] as Map?) ?? {}).map(
+          (k, v) => MapEntry(k as String, (v as num).toDouble()),
+        ),
+        itemNames: ((j['itemNames'] as Map?) ?? {}).map(
+          (k, v) => MapEntry(k as String, v as String),
+        ),
+        itemUnits: ((j['itemUnits'] as Map?) ?? {}).map(
+          (k, v) => MapEntry(k as String, v as String),
+        ),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': date.toIso8601String(),
+        'weekIndex': weekIndex,
+        'weekLabel': weekLabel,
+        'servingsByDay':
+            servingsByDay.map((k, v) => MapEntry('$k', v)),
+        'totals': totals,
+        'itemNames': itemNames,
+        'itemUnits': itemUnits,
+      };
+}
+
 class WeeklyPlanEntry {
   final String id;
   String recipeId;

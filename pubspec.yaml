@@ -19,8 +19,19 @@ dependencies:
   intl: ^0.19.0
   uuid: ^4.4.0
   share_plus: ^10.1.2
+  pdf: ^3.11.1
+  printing: ^5.14.2
   excel: ^4.0.3
+  archive: ^3.6.1
+  xml: ^6.5.0
+  file_picker: ^8.1.2
+  image_picker: ^1.1.2
+  record: ^6.0.0
+  audioplayers: ^6.1.0
+  http: ^1.2.2
+  path_provider: ^2.1.4
   cupertino_icons: ^1.0.8
+  google_fonts: ^8.2.1
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +40,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/imha_tutanak_sablonu.xlsx

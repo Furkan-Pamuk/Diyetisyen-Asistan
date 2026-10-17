@@ -55,11 +55,33 @@ class NotificationService {
     await _plugin.cancel((orderId.hashCode & 0x7fffffff) ^ 0x100000);
   }
 
+  /// Not hatırlatıcısı: verilen tarih-saatte "Not hatırlatma" bildirimi.
+  Future<void> scheduleNoteReminder(
+      String noteId, String text, DateTime at) async {
+    if (!_ready) return;
+    await cancelNote(noteId);
+    await _schedule(
+      id: (noteId.hashCode & 0x7fffffff) ^ 0x200000,
+      title: 'Not hatırlatma',
+      body: text.isEmpty ? 'Kaydedilmiş notunuz var.' : text,
+      date: at,
+      channel: 'notes',
+      channelName: 'Not Hatırlatıcıları',
+    );
+  }
+
+  Future<void> cancelNote(String noteId) async {
+    if (!_ready) return;
+    await _plugin.cancel((noteId.hashCode & 0x7fffffff) ^ 0x200000);
+  }
+
   Future<void> _schedule({
     required int id,
     required String title,
     required String body,
     required DateTime date,
+    String channel = 'orders',
+    String channelName = 'Sipariş Hatırlatıcıları',
   }) async {
     final when =
         date.isAfter(DateTime.now()) ? date : DateTime.now().add(const Duration(seconds: 5));
@@ -69,9 +91,9 @@ class NotificationService {
         title,
         body,
         tz.TZDateTime.from(when, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails('orders', 'Sipariş Hatırlatıcıları'),
-          iOS: DarwinNotificationDetails(),
+        NotificationDetails(
+          android: AndroidNotificationDetails(channel, channelName),
+          iOS: const DarwinNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
