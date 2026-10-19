@@ -183,20 +183,33 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         const SizedBox(height: 6),
                         StockBar(ratio: item.stockRatio),
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Row(
+                        Builder(builder: (_) {
+                          // Dar ekranda sıkışmayı önlemek için tam genişlik satır;
+                          // adım deponun %5'i (en az 100 g / 1 adet) ki
+                          // değişim gözle görünür olsun.
+                          final step = item.unit == StockUnit.gram
+                              ? (item.warehouseStock * 0.05)
+                                  .clamp(100.0, 1000000.0)
+                                  .toDouble()
+                              : (item.warehouseStock * 0.05)
+                                  .clamp(1.0, 100.0)
+                                  .roundToDouble();
+                          final stepLabel = item.unit ==
+                                  StockUnit.gram
+                              ? '${step.toStringAsFixed(step >= 100 ? 0 : 1)} g'
+                              : '${step.toStringAsFixed(0)} adet';
+                          return Column(
+                            children: [
+                              Row(
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.remove_circle_outline),
+                                    icon: const Icon(
+                                        Icons.remove_circle_outline),
+                                    tooltip: 'Azalt ($stepLabel)',
                                     onPressed: () => context
                                         .read<AppStore>()
                                         .adjustStock(
-                                            item.id,
-                                            item.unit == StockUnit.gram
-                                                ? -100
-                                                : -1),
+                                            item.id, -step),
                                   ),
                                   Expanded(
                                     child: Builder(builder: (_) {
@@ -208,7 +221,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                           100.0);
                                       return Slider(
                                         value: item.currentStock
-                                            .clamp(0, sliderMax),
+                                            .clamp(0, sliderMax)
+                                            .toDouble(),
                                         max: sliderMax,
                                         divisions: 50,
                                         label: item.formattedStock(),
@@ -219,24 +233,44 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                     }),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.add_circle_outline),
+                                    icon: const Icon(
+                                        Icons.add_circle_outline),
+                                    tooltip: 'Artır ($stepLabel)',
                                     onPressed: () => context
                                         .read<AppStore>()
                                         .adjustStock(
-                                            item.id,
-                                            item.unit == StockUnit.gram
-                                                ? 100
-                                                : 1),
+                                            item.id, step),
                                   ),
                                 ],
                               ),
-                            ),
-                            FilledButton.tonal(
-                              onPressed: () => _openReceive(context, item),
-                              child: const Text('Mal Kabul'),
-                            ),
-                          ],
-                        ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: FilledButton.tonal(
+                                      onPressed: () => _openReceive(
+                                          context, item),
+                                      child:
+                                          const Text('Mal Kabul'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _openConsume(
+                                              context, item),
+                                      icon: const Icon(
+                                          Icons.remove_circle_outline,
+                                          size: 18),
+                                      label:
+                                          const Text('Tüketim'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
                         if (item.isWarning)
                           Padding(
                             padding:
@@ -297,6 +331,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
     showModalBottomSheet(
       context: context,
       builder: (_) => ReceiveSheet(itemId: item.id, name: item.name),
+    );
+  }
+
+  void _openConsume(BuildContext context, InventoryItem item) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ConsumeSheet(itemId: item.id),
     );
   }
 
@@ -668,6 +710,127 @@ class _CapacitySheetState extends State<CapacitySheet> {
                           }
                         : null,
                     child: const Text('Kaydet'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Manuel tüketim: kullanıldıkça stoktan düşer.
+/// Miktar yazılır, onayda stoktan düşülür.
+class ConsumeSheet extends StatefulWidget {
+  final String itemId;
+  const ConsumeSheet({super.key, required this.itemId});
+
+  @override
+  State<ConsumeSheet> createState() => _ConsumeSheetState();
+}
+
+class _ConsumeSheetState extends State<ConsumeSheet> {
+  final _qty = TextEditingController();
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _qty.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  double get _value =>
+      double.tryParse(_qty.text.replaceAll(',', '.')) ?? -1;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final item = store.itemById(widget.itemId);
+    if (item == null) return const SizedBox.shrink();
+    final valid = _value > 0 && _value <= item.currentStock;
+    final after = valid ? item.currentStock - _value : item.currentStock;
+
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Tüketim — ${item.name}',
+                style: Theme.of(context).textTheme.titleLarge),
+            Text('Mevcut: ${item.formattedStock()}',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _qty,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText:
+                    'Kullanılan miktar (${item.unit.abbreviation})',
+                border: const OutlineInputBorder(),
+                errorText: _qty.text.isEmpty
+                    ? null
+                    : (valid
+                        ? null
+                        : '0 ile ${item.formattedStock()} arasında girin'),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _note,
+              decoration: const InputDecoration(
+                  labelText: 'Not (opsiyonel, örn. akşam servisi)',
+                  border: OutlineInputBorder(),
+                  isDense: true),
+            ),
+            if (valid) ...[
+              const SizedBox(height: 8),
+              Text('Kalan: ${item.formatAmount(after)}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Vazgeç'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: valid
+                        ? () async {
+                            await store.adjustStock(
+                                item.id, -_value);
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(
+                                SnackBar(
+                                    content: Text(
+                                        '${item.name}: ${item.formatAmount(_value)} düşüldü${_note.text.trim().isNotEmpty ? ' (${_note.text.trim()})' : ''}. Kalan: ${item.formatAmount(after)}')),
+                              );
+                            }
+                          }
+                        : null,
+                    child: const Text('Stoktan Düş'),
                   ),
                 ),
               ],
