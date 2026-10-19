@@ -1528,6 +1528,7 @@ class AppStore extends ChangeNotifier {
   bool get syncOn => _syncUid != null;
   StreamSubscription<DocumentSnapshot>? _syncSub;
   Timer? _pushTimer;
+  bool _syncStarting = false;
 
   DocumentReference get _userDoc => FirebaseFirestore.instance
       .collection('users')
@@ -1535,40 +1536,48 @@ class AppStore extends ChangeNotifier {
 
   /// Starts syncing with the cloud account. Last-write-wins:
   /// the newer side (local or cloud) overwrites the other.
+  /// Re-entrant çağrılara karşı korumalı (art arda build'lerden
+  /// birden çok kez tetiklenebilir).
   Future<void> enableSync(String uid) async {
-    if (_syncUid == uid) return;
-    await _syncSub?.cancel();
-    _syncUid = uid;
+    if (_syncUid == uid || _syncStarting) return;
+    _syncStarting = true;
     try {
-      final snap = await _userDoc.get();
-      final data = snap.data() as Map<String, dynamic>?;
-      if (data != null) {
-        final remoteTime =
-            DateTime.tryParse(data['updatedAt'] as String? ?? '');
-        if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
-          _applySnapshot(Map<String, dynamic>.from(data));
-          await _saveLocal();
-        } else if (remoteTime == null || updatedAt.isAfter(remoteTime)) {
-          await _pushNow();
+      await _syncSub?.cancel();
+      _syncUid = uid;
+      try {
+        final snap = await _userDoc.get();
+        final data = snap.data() as Map<String, dynamic>?;
+        if (data != null) {
+          final remoteTime =
+              DateTime.tryParse(data['updatedAt'] as String? ?? '');
+          if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
+            _applySnapshot(Map<String, dynamic>.from(data));
+            await _saveLocal();
+          } else if (remoteTime == null ||
+              updatedAt.isAfter(remoteTime)) {
+            await _pushNow();
+          }
+        } else {
+          await _pushNow(); // first login: upload local data
         }
-      } else {
-        await _pushNow(); // first login: upload local data
+        _syncSub = _userDoc.snapshots().listen((s) {
+          final d = s.data() as Map<String, dynamic>?;
+          if (d == null) return;
+          final remoteTime =
+              DateTime.tryParse(d['updatedAt'] as String? ?? '');
+          if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
+            _applySnapshot(Map<String, dynamic>.from(d));
+            _saveLocal();
+            notifyListeners();
+          }
+        });
+      } catch (e) {
+        debugPrint('Sync failed: $e');
       }
-      _syncSub = _userDoc.snapshots().listen((s) {
-        final d = s.data() as Map<String, dynamic>?;
-        if (d == null) return;
-        final remoteTime =
-            DateTime.tryParse(d['updatedAt'] as String? ?? '');
-        if (remoteTime != null && remoteTime.isAfter(updatedAt)) {
-          _applySnapshot(Map<String, dynamic>.from(d));
-          _saveLocal();
-          notifyListeners();
-        }
-      });
-    } catch (e) {
-      debugPrint('Sync failed: $e');
+      notifyListeners();
+    } finally {
+      _syncStarting = false;
     }
-    notifyListeners();
   }
 
   Future<void> disableSync() async {

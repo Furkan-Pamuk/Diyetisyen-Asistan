@@ -13,8 +13,37 @@ import '../widgets/common.dart';
 import '../widgets/product_name_field.dart';
 import 'production_table_screen.dart';
 
-class GroceryListScreen extends StatelessWidget {
+class GroceryListScreen extends StatefulWidget {
   const GroceryListScreen({super.key});
+
+  @override
+  State<GroceryListScreen> createState() => _GroceryListScreenState();
+}
+
+class _GroceryListScreenState extends State<GroceryListScreen> {
+  bool _generating = false;
+
+  Future<void> _generate(BuildContext context) async {
+    if (_generating) return; // çift dokunuş koruması
+    setState(() => _generating = true);
+    try {
+      await context.read<AppStore>().generateGroceryList();
+      if (context.mounted) {
+        final n = context.read<AppStore>().groceryItems.length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Liste güncellendi ($n kalem).')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Liste oluşturulamadı: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,10 +103,19 @@ class GroceryListScreen extends StatelessWidget {
                     },
                   ),
                   FilledButton.icon(
-                    onPressed: () =>
-                        context.read<AppStore>().generateGroceryList(),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Listeyi Oluştur / Yenile'),
+                    onPressed: _generating
+                        ? null
+                        : () => _generate(context),
+                    icon: _generating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2))
+                        : const Icon(Icons.refresh),
+                    label: Text(_generating
+                        ? 'Oluşturuluyor…'
+                        : 'Listeyi Oluştur / Yenile'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(

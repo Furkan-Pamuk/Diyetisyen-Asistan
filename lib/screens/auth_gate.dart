@@ -10,14 +10,34 @@ import 'home_screen.dart';
 /// - Firebase missing -> local HomeScreen.
 /// - "Continue without account" chosen -> local HomeScreen.
 /// - Logged out -> AuthScreen.
-/// - Logged in -> enables cloud sync, then HomeScreen.
-class AuthGate extends StatelessWidget {
+/// - Logged in -> enables cloud sync (once per account), then HomeScreen.
+///
+/// Not: senkron build içinde DEĞİL, post-frame'de ve uid değişince
+/// bir kez başlatılır (build sırasında notifyListeners döngüsünü önler).
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  String? _syncedUid;
+
+  void _ensureSync(String? uid) {
+    if (uid == null || uid == _syncedUid) return;
+    _syncedUid = uid;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppStore>().enableSync(uid);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (!store.firebaseReady || store.localOnly) {
+      _syncedUid = null;
       return const HomeScreen();
     }
     return StreamBuilder<User?>(
@@ -28,8 +48,11 @@ class AuthGate extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()));
         }
         final user = snap.data;
-        if (user == null) return const AuthScreen();
-        store.enableSync(user.uid);
+        if (user == null) {
+          _syncedUid = null;
+          return const AuthScreen();
+        }
+        _ensureSync(user.uid);
         return const HomeScreen();
       },
     );
