@@ -334,13 +334,14 @@ class AppStore extends ChangeNotifier {
 
   List<SupplierOrder> get activeOrders {
     final list = supplierOrders.where((o) => o.status.isActive).toList();
-    list.sort((a, b) => a.orderDate.compareTo(b.orderDate));
+    // Yeniden eskiye: son girilen üstte.
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 
   List<SupplierOrder> get attentionOrders {
     final list = supplierOrders.where((o) => o.needsAttention).toList();
-    list.sort((a, b) => a.orderDate.compareTo(b.orderDate));
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 

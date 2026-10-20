@@ -28,6 +28,24 @@ void main() {
     expect(order.needsAttention, isFalse);
   });
 
+  test('orders sort newest first', () {
+    final old = SupplierOrder(
+      title: 'eski',
+      orderDate: DateTime(2026, 1, 1),
+      pickupDate: DateTime(2026, 1, 3),
+      createdAt: DateTime(2026, 1, 1, 10),
+    );
+    final fresh = SupplierOrder(
+      title: 'yeni',
+      orderDate: DateTime(2026, 1, 1),
+      pickupDate: DateTime(2026, 1, 3),
+      createdAt: DateTime(2026, 1, 2, 10),
+    );
+    final list = [old, fresh]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    expect(list.first.title, 'yeni');
+  });
+
   test('low stock detection and ratio', () {
     final item = InventoryItem(
       name: 'Pirinç',

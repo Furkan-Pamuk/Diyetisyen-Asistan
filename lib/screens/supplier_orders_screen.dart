@@ -33,7 +33,7 @@ class _SupplierOrdersScreenState extends State<SupplierOrdersScreen> {
         break;
       case StatusFilter.all:
         filtered = List.of(store.supplierOrders)
-          ..sort((a, b) => a.orderDate.compareTo(b.orderDate));
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         break;
       case StatusFilter.attention:
         filtered = store.attentionOrders;

@@ -57,6 +57,8 @@ class SupplierOrder {
   /// Yapısal sipariş kalemleri (sepetten veya elle). Boş olabilir
   /// (eski siparişler); teslim alma ekranında satır eklenebilir.
   List<OrderLine> items;
+  /// Listede yeniden eskiye sıralama için giriş zamanı.
+  DateTime createdAt;
 
   SupplierOrder({
     String? id,
@@ -69,8 +71,10 @@ class SupplierOrder {
     this.notes = '',
     this.reminderEnabled = true,
     List<OrderLine>? items,
+    DateTime? createdAt,
   }) : id = id ?? _uuid.v4(),
-       items = items ?? [];
+       items = items ?? [],
+       createdAt = createdAt ?? DateTime.now();
 
   static int daysUntil(DateTime date, [DateTime? now]) {
     final n = now ?? DateTime.now();
@@ -107,12 +111,14 @@ class SupplierOrder {
   bool get needsAttention =>
       orderAlert != AlertLevel.ok || pickupAlert != AlertLevel.ok;
 
-  factory SupplierOrder.fromJson(Map<String, dynamic> j) => SupplierOrder(
+  factory SupplierOrder.fromJson(Map<String, dynamic> j) {
+    final orderDate = DateTime.parse(j['orderDate'] as String);
+    return SupplierOrder(
         id: j['id'] as String?,
         supplierName: (j['supplierName'] as String?) ?? 'Supplier X',
         supplierId: j['supplierId'] as String?,
         title: j['title'] as String,
-        orderDate: DateTime.parse(j['orderDate'] as String),
+        orderDate: orderDate,
         pickupDate: DateTime.parse(j['pickupDate'] as String),
         status: SupplierOrderStatusX.fromKey(j['status'] as String),
         notes: (j['notes'] as String?) ?? '',
@@ -121,7 +127,13 @@ class SupplierOrder {
             .map((e) =>
                 OrderLine.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
+        // Eski kayıtlar: giriş zamanı yoksa sipariş tarihi kullanılır.
+        createdAt: j['createdAt'] == null
+            ? orderDate
+            : DateTime.tryParse(j['createdAt'] as String) ??
+                orderDate,
       );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -134,5 +146,6 @@ class SupplierOrder {
         'notes': notes,
         'reminderEnabled': reminderEnabled,
         'items': items.map((e) => e.toJson()).toList(),
+        'createdAt': createdAt.toIso8601String(),
       };
 }
