@@ -178,9 +178,14 @@ class _SupplierOrdersScreenState extends State<SupplierOrdersScreen> {
                                   'Sipariş: ${fmtDay(o.orderDate)} • Teslim: ${fmtDay(o.pickupDate)}',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
-                                CountdownText(
-                                    days: o.orderCountdown, prefix: 'Sipariş:'),
-                                if (o.status != SupplierOrderStatus.scheduled)
+                                // Sipariş günü uyarısı gösterilmez (kullanıcı isteği);
+                                // gecikme ve yaklaşan günler gösterilir.
+                                if (o.orderCountdown != 0)
+                                  CountdownText(
+                                      days: o.orderCountdown,
+                                      prefix: 'Sipariş:'),
+                                if (o.status !=
+                                    SupplierOrderStatus.scheduled)
                                   CountdownText(
                                       days: o.pickupCountdown,
                                       prefix: 'Teslim:'),

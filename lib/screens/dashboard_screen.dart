@@ -380,8 +380,13 @@ class DashboardScreen extends StatelessWidget {
                               Wrap(
                                 spacing: 8,
                                 children: [
-                                  CountdownText(days: o.orderCountdown, prefix: 'Sipariş:'),
-                                  CountdownText(days: o.pickupCountdown, prefix: 'Teslim:'),
+                                  if (o.orderCountdown != 0)
+                                    CountdownText(
+                                        days: o.orderCountdown,
+                                        prefix: 'Sipariş:'),
+                                  CountdownText(
+                                      days: o.pickupCountdown,
+                                      prefix: 'Teslim:'),
                                 ],
                               ),
                             ],

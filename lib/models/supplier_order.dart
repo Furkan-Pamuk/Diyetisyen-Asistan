@@ -85,7 +85,9 @@ class SupplierOrder {
   AlertLevel get orderAlert {
     if (!status.isActive) return AlertLevel.ok;
     if (orderCountdown < 0) return AlertLevel.overdue;
-    if (orderCountdown == 0) return AlertLevel.dueToday;
+    // Sipariş günü için uyarı verilmez (kullanıcı isteği):
+    // ne gecikme ne de "bugün!" alarmı gösterilir.
+    if (orderCountdown == 0) return AlertLevel.ok;
     if (orderCountdown <= 2) return AlertLevel.dueSoon;
     return AlertLevel.ok;
   }

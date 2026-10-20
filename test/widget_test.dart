@@ -15,6 +15,19 @@ void main() {
     expect(order.needsAttention, isTrue);
   });
 
+  test('order due today gives no warning', () {
+    final now = DateTime.now();
+    final order = SupplierOrder(
+      title: 'bugünkü sipariş',
+      orderDate: DateTime(now.year, now.month, now.day),
+      pickupDate:
+          DateTime(now.year, now.month, now.day).add(const Duration(days: 3)),
+    );
+    expect(order.orderCountdown, 0);
+    expect(order.orderAlert, AlertLevel.ok);
+    expect(order.needsAttention, isFalse);
+  });
+
   test('low stock detection and ratio', () {
     final item = InventoryItem(
       name: 'Pirinç',
