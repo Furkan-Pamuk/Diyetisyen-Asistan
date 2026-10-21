@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../main.dart';
 import '../models/grocery_category.dart';
 import '../models/menu_entry.dart';
+import '../models/supplier_order.dart';
 import '../state/app_store.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common.dart';
@@ -56,6 +57,10 @@ class DashboardScreen extends StatelessWidget {
 
           // Motivasyon kutusu (10 sn'de bir patenci kız kayar)
           const MotivationCard(),
+          const SizedBox(height: 24),
+
+          // Günün ajandası: menü + sipariş/teslim + hatırlatıcı + kritik stok
+          _buildAgendaCard(context, store, todayMenu, now),
           const SizedBox(height: 24),
 
           // Main Content Area
@@ -400,8 +405,179 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildLowStockCard(BuildContext context, AppStore store) {
+  /// Günün ajandası: bugünkü menü, sipariş/teslim günleri,
+  /// hatırlatıcılı notlar ve kritik stok özeti tek listede.
+  Widget _buildAgendaCard(BuildContext context, AppStore store,
+      List<MenuEntry> todayMenu, DateTime now) {
     final nav = TabNavigationScope.of(context);
+    bool sameDay(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    String hm(DateTime d) =>
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+    final rows = <_AgendaRow>[];
+    for (final e in todayMenu) {
+      final r = store.recipeById(e.recipeId);
+      rows.add(_AgendaRow(
+        icon: Icons.restaurant_rounded,
+        color: AppColors.primary,
+        title: '${e.meal} • ${r?.name ?? 'Silinmiş tarif'}',
+        subtitle: '${e.servings} kişi',
+        tab: 6,
+      ));
+    }
+    for (final o in store.supplierOrders) {
+      if (!o.status.isActive) continue;
+      if (sameDay(o.orderDate, now)) {
+        rows.add(_AgendaRow(
+          icon: Icons.shopping_cart_checkout_rounded,
+          color: AppColors.info,
+          title: 'Sipariş günü: ${o.title}',
+          subtitle: store.supplierNameOf(o),
+          tab: 2,
+        ));
+      } else if (o.orderCountdown < 0) {
+        rows.add(_AgendaRow(
+          icon: Icons.warning_amber_rounded,
+          color: AppColors.error,
+          title: 'Geciken sipariş: ${o.title}',
+          subtitle: '${-o.orderCountdown} gün gecikti',
+          tab: 2,
+        ));
+      }
+      if (o.status == SupplierOrderStatus.ordered ||
+          o.status == SupplierOrderStatus.ready) {
+        if (sameDay(o.pickupDate, now)) {
+          rows.add(_AgendaRow(
+            icon: Icons.local_shipping_rounded,
+            color: AppColors.warning,
+            title: 'Teslim alma: ${o.title}',
+            subtitle: store.supplierNameOf(o),
+            tab: 2,
+          ));
+        } else if (o.pickupCountdown < 0) {
+          rows.add(_AgendaRow(
+            icon: Icons.warning_amber_rounded,
+            color: AppColors.error,
+            title: 'Geciken teslim: ${o.title}',
+            subtitle: '${-o.pickupCountdown} gün gecikti',
+            tab: 2,
+          ));
+        }
+      }
+    }
+    for (final n in store.notes) {
+      final at = n.reminderAt;
+      if (at == null) continue;
+      if (sameDay(at, now) || at.isBefore(now)) {
+        rows.add(_AgendaRow(
+          icon: Icons.alarm_on_rounded,
+          color: const Color(0xFFD6336C),
+          title: n.text.isEmpty ? '(boş not)' : n.text,
+          subtitle: 'Hatırlatıcı: ${hm(at)}',
+          tab: -1,
+        ));
+      }
+    }
+    if (store.criticalStockItems.isNotEmpty) {
+      rows.add(_AgendaRow(
+        icon: Icons.inventory_2_rounded,
+        color: AppColors.error,
+        title:
+            '${store.criticalStockItems.length} üründe kritik stok',
+        subtitle: store.criticalStockItems
+            .take(3)
+            .map((e) => e.name)
+            .join(', '),
+        tab: 1,
+      ));
+    }
+
+    return _ModernContainer(
+      title: 'Günün Ajandası • ${fmtDay(now)} (${rows.length})',
+      child: rows.isEmpty
+          ? const _CleanEmptyRow(
+              icon: Icons.event_available_rounded,
+              title: 'Bugün planlı iş yok.',
+            )
+          : Column(
+              children: [
+                for (final r in rows)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border:
+                          Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: InkWell(
+                      onTap: r.tab < 0
+                          ? null
+                          : () => nav?.navigateTo(r.tab),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: r.color
+                                  .withValues(alpha: 0.12),
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                            ),
+                            child: Icon(r.icon,
+                                size: 18, color: r.color),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  r.title,
+                                  style:
+                                      GoogleFonts.plusJakartaSans(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    color: AppColors.text,
+                                  ),
+                                  maxLines: 1,
+                                  overflow:
+                                      TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  r.subtitle,
+                                  style:
+                                      GoogleFonts.plusJakartaSans(
+                                    fontSize: 11.5,
+                                    color: AppColors.muted,
+                                  ),
+                                  maxLines: 1,
+                                  overflow:
+                                      TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (r.tab >= 0)
+                            const Icon(
+                                Icons.chevron_right_rounded,
+                                size: 20,
+                                color: AppColors.muted),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildLowStockCard(BuildContext context, AppStore store) {    final nav = TabNavigationScope.of(context);
     final critical = store.criticalStockItems;
     final warning = store.warningStockItems;
 
@@ -766,6 +942,22 @@ class DashboardScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+class _AgendaRow {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final int tab; // -1 = işlem yok
+
+  const _AgendaRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.tab,
+  });
 }
 
 class _ModernContainer extends StatelessWidget {
