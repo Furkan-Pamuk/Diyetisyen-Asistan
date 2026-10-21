@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/grocery_category.dart';
 import '../models/inventory_item.dart';
 import '../models/recipe.dart';
+import '../data/official_recipes.dart';
 import '../state/app_store.dart';
 import '../widgets/product_name_field.dart';
 
@@ -19,6 +20,43 @@ class RecipeBookScreen extends StatefulWidget {
 
 class _RecipeBookScreenState extends State<RecipeBookScreen> {
   String _search = '';
+  bool _importing = false;
+
+  Future<void> _confirmImport() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Resmi listeyi içe aktar'),
+        content: const Text(
+            'Yemek gramaj listesi (EK-1) içe aktarılacak: 278 tarif, 1 porsiyonluk miktarlarıyla eklenecek. Eksik stok kartları (sıfır stokla) açılacak. Zaten olan tarifler ve kartlar atlanacak. Devam edilsin mi?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('İçe aktar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _importing = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final store = context.read<AppStore>();
+      final res = await store.importOfficialRecipes();
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              '${res['recipes']} tarif, ${res['items']} stok kartı eklendi.')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+          SnackBar(content: Text('İçe aktarma başarısız: $e')));
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +71,16 @@ class _RecipeBookScreenState extends State<RecipeBookScreen> {
       appBar: AppBar(
         title: const Text('Reçeteler (1 Porsiyon)'),
         actions: [
+          IconButton(
+            icon: _importing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download),
+            tooltip: 'Resmi gramaj listesini içe aktar (EK-1)',
+            onPressed: _importing ? null : _confirmImport,
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Yeni reçete',
