@@ -479,6 +479,15 @@ class DashboardScreen extends StatelessWidget {
         ));
       }
     }
+    for (final a in store.agendaForDay(now)) {
+      rows.add(_AgendaRow(
+        icon: Icons.event_note_rounded,
+        color: AppColors.info,
+        title: a.text,
+        subtitle: 'Ajanda notu',
+        tab: 10, // Aylık Ajanda
+      ));
+    }
     if (store.criticalStockItems.isNotEmpty) {
       rows.add(_AgendaRow(
         icon: Icons.inventory_2_rounded,

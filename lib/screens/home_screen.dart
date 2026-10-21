@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../main.dart';
 import '../state/app_store.dart';
 import '../theme/app_colors.dart';
+import 'agenda_screen.dart';
 import 'dashboard_screen.dart';
 import 'disposal_screen.dart';
 import 'grocery_list_screen.dart';
@@ -71,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ProfileScreen(),
     OrderCartScreen(),
     DisposalScreen(),
+    AgendaScreen(),
   ];
 
   static final List<_NavItem> _navItems = [
@@ -139,6 +141,13 @@ class _HomeScreenState extends State<HomeScreen> {
       icon: Icons.delete_outline,
       activeIcon: Icons.delete_rounded,
       badgeCount: (s) => s.disposalForms.length,
+    ),
+    _NavItem(
+      title: 'Aylık Ajanda',
+      category: 'GENEL',
+      icon: Icons.calendar_month_outlined,
+      activeIcon: Icons.calendar_month_rounded,
+      badgeCount: (s) => s.agendaForDay(DateTime.now()).length,
     ),
   ];
 

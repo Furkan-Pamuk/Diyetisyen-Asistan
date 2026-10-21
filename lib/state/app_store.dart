@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/grocery_category.dart';
+import '../models/agenda_entry.dart';
 import '../models/disposal.dart';
 import '../models/inventory_item.dart';
 import '../models/menu_entry.dart';
@@ -193,6 +194,50 @@ class AppStore extends ChangeNotifier {
     final i = orderCart.indexWhere((e) => e.id == id);
     if (i == -1) return;
     orderCart[i].supplierId = supplierId;
+    await save();
+  }
+
+  // ---------- Aylık ajanda ----------
+
+  List<AgendaEntry> agendaEntries = [];
+
+  List<AgendaEntry> agendaForDay(DateTime day) {
+    final d = AgendaEntry.norm(day);
+    final list = agendaEntries
+        .where((e) =>
+            e.day.year == d.year &&
+            e.day.month == d.month &&
+            e.day.day == d.day)
+        .toList();
+    list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return list;
+  }
+
+  /// Ay görünümünde nokta gösterilecek günler.
+  Set<int> agendaDaysInMonth(int year, int month) => agendaEntries
+      .where((e) => e.day.year == year && e.day.month == month)
+      .map((e) => e.day.day)
+      .toSet();
+
+  Future<AgendaEntry> addAgendaEntry(
+      DateTime day, String text) async {
+    final entry =
+        AgendaEntry(day: day, text: text.trim());
+    agendaEntries.add(entry);
+    await save();
+    return entry;
+  }
+
+  Future<void> updateAgendaEntryText(
+      String id, String text) async {
+    final i = agendaEntries.indexWhere((e) => e.id == id);
+    if (i == -1) return;
+    agendaEntries[i].text = text.trim();
+    await save();
+  }
+
+  Future<void> deleteAgendaEntry(String id) async {
+    agendaEntries.removeWhere((e) => e.id == id);
     await save();
   }
 
@@ -1342,6 +1387,8 @@ class AppStore extends ChangeNotifier {
           'photo': profilePhotoBase64,
         },
         'notes': notes.map((e) => e.toJson()).toList(),
+        'agenda':
+            agendaEntries.map((e) => e.toJson()).toList(),
         'weekStart': weekStart.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
@@ -1498,6 +1545,14 @@ class AppStore extends ChangeNotifier {
           .toList();
     } catch (_) {
       notes = [];
+    }
+    try {
+      agendaEntries = ((j['agenda'] as List?) ?? [])
+          .map((e) =>
+              AgendaEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      agendaEntries = [];
     }
     weekStart = DateTime.tryParse(j['weekStart'] as String? ?? '') ??
         DateTime.now();
