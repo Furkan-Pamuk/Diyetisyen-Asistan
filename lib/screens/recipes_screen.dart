@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../main.dart';
 import '../models/grocery_category.dart';
 import '../models/inventory_item.dart';
 import '../models/recipe.dart';
+import '../services/pdf_service.dart';
 import '../state/app_store.dart';
 import '../widgets/common.dart';
 import '../widgets/product_name_field.dart';
@@ -87,6 +89,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
                                   fontSize: 16)),
                         ),
                         IconButton(
+                          icon: const Icon(Icons.share, size: 20),
+                          tooltip: 'Paylaş',
+                          onPressed: () => _shareRecipe(context, r),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.print, size: 20),
+                          tooltip: 'Yazdır',
+                          onPressed: () => _printRecipe(context, r),
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.edit, size: 20),
                           tooltip: 'Düzenle',
                           onPressed: () => _openForm(context, r),
@@ -153,6 +165,53 @@ class _RecipesScreenState extends State<RecipesScreen> {
       isScrollControlled: true,
       builder: (_) => ProduceSheet(recipeId: recipe.id),
     );
+  }
+
+  List<Map<String, String>> _recipeLines(
+      AppStore store, Recipe recipe, String per) {
+    return recipe.ingredients.map((ing) {
+      final item = store.itemById(ing.itemId);
+      return {
+        'name': item?.name ?? 'Silinmiş ürün',
+        'qty': item != null
+            ? '${item.formatAmount(ing.amountPerServing)} $per'
+            : ing.amountPerServing.toString(),
+      };
+    }).toList();
+  }
+
+  void _shareRecipe(BuildContext context, Recipe recipe) {
+    final store = context.read<AppStore>();
+    final lines =
+        _recipeLines(store, recipe, '/ porsiyon');
+    final text = PdfService.recipeShareText(
+      title: recipe.name,
+      subtitle: '${recipe.servingsDefault} kişilik'
+          '${recipe.description.isNotEmpty ? ' • ${recipe.description}' : ''}',
+      items: lines,
+    );
+    Share.share(text, subject: recipe.name);
+  }
+
+  Future<void> _printRecipe(BuildContext context, Recipe recipe) async {
+    final store = context.read<AppStore>();
+    final lines =
+        _recipeLines(store, recipe, '/ porsiyon');
+    try {
+      await PdfService.printRecipePdf(
+        title: recipe.name,
+        subtitle: '${recipe.servingsDefault} kişilik'
+            '${recipe.description.isNotEmpty ? ' • ${recipe.description}' : ''}',
+        items: lines,
+        filename: 'tarif.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Yazdırma başarısız: $e')),
+        );
+      }
+    }
   }
 
   void _openForm(BuildContext context, Recipe? existing) {

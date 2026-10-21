@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/grocery_category.dart';
 import '../models/menu_entry.dart';
@@ -93,6 +94,16 @@ class _ProductionTableScreenState extends State<ProductionTableScreen> {
                   : () => setState(() => _items.clear()),
             ),
           ] else ...[
+            IconButton(
+              icon: const Icon(Icons.share),
+              tooltip: 'Haftalık menüyü paylaş',
+              onPressed: () => _shareWeekMenu(context),
+            ),
+            IconButton(
+              icon: const Icon(Icons.print),
+              tooltip: 'Haftalık menüyü yazdır',
+              onPressed: () => _printWeekMenu(context),
+            ),
             IconButton(
               icon: _importing
                   ? const SizedBox(
@@ -959,6 +970,72 @@ class _ProductionTableScreenState extends State<ProductionTableScreen> {
       ),
     );
   }
+  Map<String, List<Map<String, String>>> _weekMenuGroups(
+      AppStore store) {
+    final groups = <String, List<Map<String, String>>>{};
+    final entries =
+        store.weeklyMenu.where((e) => e.weekIndex == _week).toList();
+    for (var d = 0; d < 7; d++) {
+      final dayEntries =
+          entries.where((e) => e.dayIndex == d).toList();
+      if (dayEntries.isEmpty) continue;
+      groups[MenuEntry.days[d]] = dayEntries.map((e) {
+        final recipe = store.recipeById(e.recipeId);
+        return {
+          'name': '${e.meal}: ${recipe?.name ?? '(reçetesiz)'}',
+          'qty': '${e.servings} kişi',
+        };
+      }).toList();
+    }
+    return groups;
+  }
+
+void _shareWeekMenu(BuildContext context) {
+    final store = context.read<AppStore>();
+    final groups = _weekMenuGroups(store);
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Paylaşılacak menü yok.')));
+      return;
+    }
+    final buf =
+        StringBuffer('${MenuEntry.weeks[_week]} — Haftalık Menü\n\n');
+    for (final g in groups.entries) {
+      buf.writeln('== ${g.key} ==');
+      for (final item in g.value) {
+        buf.writeln('• ${item['name']} (${item['qty']})');
+      }
+      buf.writeln();
+    }
+    Share.share(buf.toString(),
+        subject: '${MenuEntry.weeks[_week]} Menü');
+  }
+
+  Future<void> _printWeekMenu(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final groups = _weekMenuGroups(store);
+    if (groups.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Yazdırılacak menü yok.')));
+      }
+      return;
+    }
+    try {
+      await PdfService.printWeekMenuPdf(
+        weekLabel: MenuEntry.weeks[_week],
+        groups: groups,
+        filename: 'haftalik-menu.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Yazdırma başarısız: $e')),
+        );
+      }
+    }
+  }
+
 }
 
 /// Haftanın bir gününün kartı: yemekler + reçete düzenle + eksik uyarısı.
@@ -1695,6 +1772,18 @@ class _TotalsSheet extends StatelessWidget {
               label: const Text('PDF olarak kaydet/paylaş'),
             ),
             const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => _printTotals(context),
+              icon: const Icon(Icons.print),
+              label: const Text('Yazdır'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => _shareTotalsText(context),
+              icon: const Icon(Icons.share),
+              label: const Text('Metin olarak paylaş'),
+            ),
+            const SizedBox(height: 8),
             OutlinedButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Kapat (düşmeden çık)'),
@@ -1708,6 +1797,25 @@ class _TotalsSheet extends StatelessWidget {
 
   Future<void> _sharePdf(BuildContext context) async {
     final store = context.read<AppStore>();
+    final data = _totalsData(store);
+    try {
+      await PdfService.shareWeekTotalsPdf(
+        weekLabel: MenuEntry.weeks[weekIndex],
+        servingsLine: data.servingsLine,
+        items: data.items,
+        filename: 'haftalik-uretim.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF oluşturulamadı: $e')),
+        );
+      }
+    }
+  }
+
+  ({String servingsLine, List<Map<String, String>> items}) _totalsData(
+      AppStore store) {
     final servingsLine = List.generate(
             7, (d) => '${MenuEntry.daysShort[d]} ${servingsByDay[d] ?? 0}')
         .join(' • ');
@@ -1721,20 +1829,38 @@ class _TotalsSheet extends StatelessWidget {
       };
     }).toList()
       ..sort((a, b) => a['name']!.compareTo(b['name']!));
+    return (servingsLine: servingsLine, items: items);
+  }
+
+  Future<void> _printTotals(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final data = _totalsData(store);
     try {
-      await PdfService.shareWeekTotalsPdf(
+      await PdfService.printWeekTotalsPdf(
         weekLabel: MenuEntry.weeks[weekIndex],
-        servingsLine: servingsLine,
-        items: items,
+        servingsLine: data.servingsLine,
+        items: data.items,
         filename: 'haftalik-uretim.pdf',
       );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF oluşturulamadı: $e')),
+          SnackBar(content: Text('Yazdırma başarısız: $e')),
         );
       }
     }
+  }
+
+  void _shareTotalsText(BuildContext context) {
+    final store = context.read<AppStore>();
+    final data = _totalsData(store);
+    final buf = StringBuffer(
+        '${MenuEntry.weeks[weekIndex]} — Haftalık Üretim Toplamı\n${data.servingsLine}\n\n');
+    for (final item in data.items) {
+      buf.writeln('• ${item['name']}: ${item['qty']}');
+    }
+    Share.share(buf.toString(),
+        subject: '${MenuEntry.weeks[weekIndex]} Üretim Toplamı');
   }
 }
 

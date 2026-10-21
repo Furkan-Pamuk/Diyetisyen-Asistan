@@ -1,3 +1,5 @@
+﻿import 'dart:typed_data';
+
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -124,12 +126,11 @@ class PdfService {
   }
 
   /// Haftalık üretim toplamı PDF'i (günlük kişi sayıları + toplamlar).
-  static Future<void> shareWeekTotalsPdf({
+  static Future<Uint8List> buildWeekTotalsPdf({
     required String weekLabel,
     required String servingsLine,
     required List<Map<String, String>> items,
     // [{name, qty}]
-    required String filename,
   }) async {
     final doc = pw.Document();
     doc.addPage(pw.MultiPage(
@@ -141,8 +142,140 @@ class PdfService {
           _row(item['name']!, item['qty']!),
       ],
     ));
+    return doc.save();
+  }
+
+  static Future<void> shareWeekTotalsPdf({
+    required String weekLabel,
+    required String servingsLine,
+    required List<Map<String, String>> items,
+    required String filename,
+  }) async {
     await Printing.sharePdf(
-        bytes: await doc.save(), filename: filename);
+        bytes: await buildWeekTotalsPdf(
+            weekLabel: weekLabel,
+            servingsLine: servingsLine,
+            items: items),
+        filename: filename);
+  }
+
+  static Future<void> printWeekTotalsPdf({
+    required String weekLabel,
+    required String servingsLine,
+    required List<Map<String, String>> items,
+    required String filename,
+  }) async {
+    final bytes = await buildWeekTotalsPdf(
+        weekLabel: weekLabel,
+        servingsLine: servingsLine,
+        items: items);
+    await Printing.layoutPdf(
+        onLayout: (_) async => bytes, name: filename);
+  }
+
+  /// Haftalık menü PDF'i (gün gün öğünler).
+  static Future<Uint8List> buildWeekMenuPdf({
+    required String weekLabel,
+    required Map<String, List<Map<String, String>>> groups,
+    // dayTitle -> [{name: 'Öğle: Mercimek Çorba', qty: '50 kişi'}]
+  }) async {
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (_) => [
+        _header('Haftalik Menu',
+            '$weekLabel • ${fmtDate(DateTime.now())}'),
+        for (final g in groups.entries) ...[
+          pw.SizedBox(height: 6),
+          pw.Text(tr(g.key),
+              style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.green800)),
+          for (final item in g.value)
+            _row(item['name']!, item['qty']!),
+        ],
+      ],
+    ));
+    return doc.save();
+  }
+
+  static Future<void> shareWeekMenuPdf({
+    required String weekLabel,
+    required Map<String, List<Map<String, String>>> groups,
+    required String filename,
+  }) async {
+    await Printing.sharePdf(
+        bytes: await buildWeekMenuPdf(
+            weekLabel: weekLabel, groups: groups),
+        filename: filename);
+  }
+
+  static Future<void> printWeekMenuPdf({
+    required String weekLabel,
+    required Map<String, List<Map<String, String>>> groups,
+    required String filename,
+  }) async {
+    final bytes = await buildWeekMenuPdf(
+        weekLabel: weekLabel, groups: groups);
+    await Printing.layoutPdf(
+        onLayout: (_) async => bytes, name: filename);
+  }
+
+  /// Tek reçete/tarif PDF'i.
+  static Future<Uint8List> buildRecipePdf({
+    required String title,
+    required String subtitle,
+    required List<Map<String, String>> items,
+    // [{name, qty}]
+  }) async {
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (_) => [
+        _header(title, subtitle),
+        for (final item in items)
+          _row(item['name']!, item['qty']!),
+      ],
+    ));
+    return doc.save();
+  }
+
+  static Future<void> shareRecipePdf({
+    required String title,
+    required String subtitle,
+    required List<Map<String, String>> items,
+    required String filename,
+  }) async {
+    await Printing.sharePdf(
+        bytes: await buildRecipePdf(
+            title: title, subtitle: subtitle, items: items),
+        filename: filename);
+  }
+
+  static Future<void> printRecipePdf({
+    required String title,
+    required String subtitle,
+    required List<Map<String, String>> items,
+    required String filename,
+  }) async {
+    final bytes = await buildRecipePdf(
+        title: title, subtitle: subtitle, items: items);
+    await Printing.layoutPdf(
+        onLayout: (_) async => bytes, name: filename);
+  }
+
+  /// Reçete/tarif metin paylaşımı (WhatsApp vb.).
+  static String recipeShareText({
+    required String title,
+    required String subtitle,
+    required List<Map<String, String>> items,
+  }) {
+    final buf = StringBuffer('$title\n$subtitle\n\n');
+    for (final item in items) {
+      buf.writeln('• ${item['name']}: ${item['qty']}');
+    }
+    return buf.toString();
   }
 
   /// İmha tutanağı PDF'i (Excel form düzeninde).
