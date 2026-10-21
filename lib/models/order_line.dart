@@ -23,15 +23,8 @@ class OrderLine {
 
   bool get isGram => unitKey == 'gram';
 
-  String formattedOrdered() {
-    if (isGram) {
-      if (orderedQty >= 1000) {
-        return '${(orderedQty / 1000).toStringAsFixed(2)} kg (${orderedQty.toStringAsFixed(0)} g)';
-      }
-      return '${orderedQty.toStringAsFixed(0)} g';
-    }
-    return '${orderedQty.toStringAsFixed(0)} adet';
-  }
+  String formattedOrdered() =>
+      StockUnitX.fromKey(unitKey).format(orderedQty);
 
   factory OrderLine.fromJson(Map<String, dynamic> j) => OrderLine(
         id: j['id'] as String?,
@@ -117,15 +110,8 @@ class ReceiptLine {
 
   bool get isGram => unitKey == 'gram';
 
-  String _fmt(double v) {
-    if (isGram) {
-      if (v >= 1000) {
-        return '${(v / 1000).toStringAsFixed(2)} kg (${v.toStringAsFixed(0)} g)';
-      }
-      return '${v.toStringAsFixed(0)} g';
-    }
-    return '${v.toStringAsFixed(0)} adet';
-  }
+  String _fmt(double v) =>
+      StockUnitX.fromKey(unitKey).format(v);
 
   String formattedOrdered() => _fmt(orderedQty);
   String formattedReceived() => _fmt(receivedQty);

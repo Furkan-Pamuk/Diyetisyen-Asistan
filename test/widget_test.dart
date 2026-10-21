@@ -28,8 +28,7 @@ void main() {
     expect(order.needsAttention, isFalse);
   });
 
-  test('orders sort newest first', () {
-    final old = SupplierOrder(
+  test('orders sort newest first', () {    final old = SupplierOrder(
       title: 'eski',
       orderDate: DateTime(2026, 1, 1),
       pickupDate: DateTime(2026, 1, 3),
@@ -62,5 +61,20 @@ void main() {
   test('deficit rounding rule', () {
     expect((1250.4).roundToDouble(), 1250.0);
     expect((2.2).ceilToDouble(), 3.0);
+  });
+
+  test('stock units format and classify', () {
+    expect(StockUnitX.fromKey('kilogram'), StockUnit.kilogram);
+    expect(StockUnitX.fromKey('koli'), StockUnit.box);
+    expect(StockUnitX.fromKey('rulo'), StockUnit.roll);
+    expect(StockUnitX.fromKey('paket'), StockUnit.pack);
+    expect(StockUnitX.fromKey('adet'), StockUnit.piece);
+    expect(StockUnitX.fromKey('bilinmeyen'), StockUnit.gram);
+    expect(StockUnit.kilogram.abbreviation, 'kg');
+    expect(StockUnit.box.abbreviation, 'koli');
+    expect(StockUnit.roll.isCountable, isTrue);
+    expect(StockUnit.gram.isCountable, isFalse);
+    expect(StockUnit.kilogram.format(2.5), '2.5 kg');
+    expect(StockUnit.pack.format(3), '3 paket');
   });
 }

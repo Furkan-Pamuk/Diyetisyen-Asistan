@@ -200,7 +200,7 @@ class _DisposalScreenState extends State<DisposalScreen> {
             .map((l) => {
                   'urun': l.productName,
                   'miktar':
-                      '${l.quantity.toStringAsFixed(l.quantity >= 100 ? 0 : 1)} ${l.unitKey == 'piece' ? 'adet' : 'g'}',
+                      '${l.quantity.toStringAsFixed(l.quantity >= 100 ? 0 : 1)} ${StockUnitX.fromKey(l.unitKey).abbreviation}',
                   'uretim': d(l.uretimTarihi),
                   'giris': d(l.dolapGirisTarihi),
                   'skt': d(l.skt),
@@ -766,14 +766,11 @@ class _DisposalFormSheetState extends State<DisposalFormSheet> {
                         labelText: 'Birim',
                         border: OutlineInputBorder(),
                         isDense: true),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'gram',
-                          child: Text('Gram (g)')),
-                      DropdownMenuItem(
-                          value: 'piece',
-                          child: Text('Adet')),
-                    ],
+                    items: StockUnit.values
+                        .map((u) => DropdownMenuItem(
+                            value: u.key,
+                            child: Text(u.displayName)))
+                        .toList(),
                     onChanged: (v) => setState(
                         () => line.unitKey = v!),
                   ),
@@ -1031,7 +1028,7 @@ class _DisposalFormSheetState extends State<DisposalFormSheet> {
             .map((l) => {
                   'urun': l.productName,
                   'miktar':
-                      '${l.quantity.toStringAsFixed(l.quantity >= 100 ? 0 : 1)} ${l.unitKey == 'piece' ? 'adet' : 'g'}',
+                      '${l.quantity.toStringAsFixed(l.quantity >= 100 ? 0 : 1)} ${StockUnitX.fromKey(l.unitKey).abbreviation}',
                   'uretim': d(l.uretimTarihi),
                   'giris': d(l.dolapGirisTarihi),
                   'skt': d(l.skt),

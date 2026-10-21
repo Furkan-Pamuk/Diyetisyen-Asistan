@@ -185,19 +185,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         const SizedBox(height: 8),
                         Builder(builder: (_) {
                           // Dar ekranda sıkışmayı önlemek için tam genişlik satır;
-                          // adım deponun %5'i (en az 100 g / 1 adet) ki
+                          // adım deponun %5'i (en az bir taban adım) ki
                           // değişim gözle görünür olsun.
-                          final step = item.unit == StockUnit.gram
-                              ? (item.warehouseStock * 0.05)
-                                  .clamp(100.0, 1000000.0)
-                                  .toDouble()
-                              : (item.warehouseStock * 0.05)
-                                  .clamp(1.0, 100.0)
-                                  .roundToDouble();
-                          final stepLabel = item.unit ==
-                                  StockUnit.gram
-                              ? '${step.toStringAsFixed(step >= 100 ? 0 : 1)} g'
-                              : '${step.toStringAsFixed(0)} adet';
+                          final step = (item.warehouseStock * 0.05)
+                              .clamp(item.unit.baseStep, 1000000.0)
+                              .toDouble();
+                          final stepLabel =
+                              item.unit.format(step);
                           return Column(
                             children: [
                               Row(
@@ -414,21 +408,21 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
                   .toList(),
               onChanged: (v) => setState(() => _cat = v!),
             ),
-            SegmentedButton<StockUnit>(
-              segments: const [
-                ButtonSegment(value: StockUnit.gram, label: Text('Gram (g)')),
-                ButtonSegment(value: StockUnit.piece, label: Text('Adet')),
-              ],
-              selected: {_unit},
-              onSelectionChanged: (s) => setState(() => _unit = s.first),
+            DropdownButtonFormField<StockUnit>(
+              initialValue: _unit,
+              decoration:
+                  const InputDecoration(labelText: 'Birim'),
+              items: StockUnit.values
+                  .map((u) => DropdownMenuItem(
+                      value: u, child: Text(u.displayName)))
+                  .toList(),
+              onChanged: (v) => setState(() => _unit = v!),
             ),
             TextField(
                 controller: _stock,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                    labelText: _unit == StockUnit.gram
-                        ? 'Stok (g)'
-                        : 'Stok (adet)')),
+                    labelText: 'Stok (${_unit.abbreviation})')),
             TextField(
                 controller: _critical,
                 keyboardType: TextInputType.number,
@@ -601,6 +595,14 @@ class _CapacitySheetState extends State<CapacitySheet> {
     '100 ton': 100000000,
   };
 
+  static const _tonChips = <String, double>{
+    '5 kg': 5,
+    '25 kg': 25,
+    '100 kg': 100,
+    '1 ton': 1000,
+    '100 ton': 100000,
+  };
+
   static const _pieceChips = <String, double>{
     '10': 10,
     '30': 30,
@@ -609,12 +611,26 @@ class _CapacitySheetState extends State<CapacitySheet> {
     '1000': 1000,
   };
 
+  Map<String, double> _chipsFor(StockUnit unit) {
+    switch (unit) {
+      case StockUnit.gram:
+        return _kgChips;
+      case StockUnit.kilogram:
+        return _tonChips;
+      case StockUnit.piece:
+      case StockUnit.roll:
+      case StockUnit.box:
+      case StockUnit.pack:
+        return _pieceChips;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     final item = context.read<AppStore>().itemById(widget.itemId);
     final v = item?.warehouseStock ?? 0;
-    final text = item != null && item.unit == StockUnit.gram
+    final text = item != null && item.unit.isWeighed
         ? v.toStringAsFixed(v >= 100 ? 0 : 1)
         : v.toStringAsFixed(0);
     _ctrl = TextEditingController(text: text);
@@ -635,12 +651,11 @@ class _CapacitySheetState extends State<CapacitySheet> {
     final item = store.itemById(widget.itemId);
     if (item == null) return const SizedBox.shrink();
 
-    final isGram = item.unit == StockUnit.gram;
     final valid = _value >= 0;
     final ratio = valid && _value > 0
         ? (item.currentStock / _value).clamp(0.0, 1.0).toDouble()
         : 0.0;
-    final chips = isGram ? _kgChips : _pieceChips;
+    final chips = _chipsFor(item.unit);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -663,9 +678,8 @@ class _CapacitySheetState extends State<CapacitySheet> {
               keyboardType: const TextInputType.numberWithOptions(
                   decimal: true, signed: false),
               decoration: InputDecoration(
-                labelText:
-                    isGram ? 'Kapasite (gram)' : 'Kapasite (adet)',
-                suffixText: isGram ? 'g' : 'adet',
+                labelText: 'Kapasite (${item.unit.abbreviation})',
+                suffixText: item.unit.abbreviation,
                 border: const OutlineInputBorder(),
                 errorText: valid ? null : '0 veya üzeri bir sayı girin',
               ),
@@ -939,10 +953,13 @@ class _ThresholdSheetState extends State<ThresholdSheet> {
   void initState() {
     super.initState();
     final item = context.read<AppStore>().itemById(widget.itemId);
-    _warnCtrl = TextEditingController(
-        text: (item?.warnThreshold ?? 0).toStringAsFixed(0));
+    String txt(double v) => item != null && item.unit.isWeighed
+        ? v.toStringAsFixed(1)
+        : v.toStringAsFixed(0);
+    _warnCtrl =
+        TextEditingController(text: txt(item?.warnThreshold ?? 0));
     _criticalCtrl = TextEditingController(
-        text: (item?.minThreshold ?? 0).toStringAsFixed(0));
+        text: txt(item?.minThreshold ?? 0));
   }
 
   @override

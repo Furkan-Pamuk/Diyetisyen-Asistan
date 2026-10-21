@@ -452,13 +452,11 @@ class _RecipeFormSheetState extends State<RecipeFormSheet> {
                           labelText: 'Birim',
                           border: OutlineInputBorder(),
                           isDense: true),
-                      items: const [
-                        DropdownMenuItem(
-                            value: StockUnit.gram,
-                            child: Text('Gram (g)')),
-                        DropdownMenuItem(
-                            value: StockUnit.piece, child: Text('Adet')),
-                      ],
+                      items: StockUnit.values
+                          .map((u) => DropdownMenuItem(
+                              value: u,
+                              child: Text(u.displayName)))
+                          .toList(),
                       onChanged: (v) =>
                           setState(() => row.newUnit = v!),
                     ),
@@ -581,7 +579,7 @@ class _ProduceSheetState extends State<ProduceSheet> {
   String _fmtTotal(AppStore store, String itemId, double value) {
     final item = store.itemById(itemId);
     if (item == null) return value.toStringAsFixed(0);
-    if (item.unit.name == 'piece') return value.toStringAsFixed(0);
+    if (item.unit.isCountable) return value.toStringAsFixed(0);
     return value.toStringAsFixed(value >= 100 ? 0 : 1);
   }
 
@@ -787,7 +785,7 @@ class _ProduceSheetState extends State<ProduceSheet> {
                   decimal: true, signed: false),
               decoration: InputDecoration(
                 labelText: 'Toplam',
-                suffixText: item.unit.name == 'piece' ? 'adet' : 'g',
+                suffixText: item.unit.abbreviation,
                 isDense: true,
                 border: const OutlineInputBorder(),
                 errorText: total >= 0 ? null : '?',

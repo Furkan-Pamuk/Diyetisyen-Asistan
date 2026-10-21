@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
 
+import 'grocery_category.dart';
+
 const _uuid = Uuid();
 
 /// Sipariş sepeti satırı: stok uyarısından veya üretim projeksiyonundan
@@ -26,15 +28,8 @@ class OrderCartItem {
 
   bool get isGram => unitKey == 'gram';
 
-  String formattedQty() {
-    if (isGram) {
-      if (quantity >= 1000) {
-        return '${(quantity / 1000).toStringAsFixed(2)} kg (${quantity.toStringAsFixed(0)} g)';
-      }
-      return '${quantity.toStringAsFixed(0)} g';
-    }
-    return '${quantity.toStringAsFixed(0)} adet';
-  }
+  String formattedQty() =>
+      StockUnitX.fromKey(unitKey).format(quantity);
 
   factory OrderCartItem.fromJson(Map<String, dynamic> j) =>
       OrderCartItem(

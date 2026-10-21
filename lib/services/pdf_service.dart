@@ -2,6 +2,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../models/grocery_category.dart';
+
 /// Liste PDF'leri: sepet, alışveriş listesi, haftalık üretim toplamı.
 /// `share*` çağrıları mobilde paylaşım sayfası, web'de indirme açar.
 ///
@@ -59,13 +61,8 @@ class PdfService {
     );
   }
 
-  static String fmtQty(double v, String unitKey) {
-    if (unitKey == 'piece') return '${v.toStringAsFixed(0)} adet';
-    if (v >= 1000) {
-      return '${(v / 1000).toStringAsFixed(2)} kg (${v.toStringAsFixed(0)} g)';
-    }
-    return '${v.toStringAsFixed(0)} g';
-  }
+  static String fmtQty(double v, String unitKey) =>
+      StockUnitX.fromKey(unitKey).format(v);
 
   static String fmtDate(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';

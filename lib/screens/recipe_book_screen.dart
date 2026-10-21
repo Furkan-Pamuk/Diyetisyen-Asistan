@@ -408,13 +408,11 @@ class _RecipeBookFormSheetState extends State<_RecipeBookFormSheet> {
                           labelText: 'Birim',
                           border: OutlineInputBorder(),
                           isDense: true),
-                      items: const [
-                        DropdownMenuItem(
-                            value: StockUnit.gram,
-                            child: Text('Gram (g)')),
-                        DropdownMenuItem(
-                            value: StockUnit.piece, child: Text('Adet')),
-                      ],
+                      items: StockUnit.values
+                          .map((u) => DropdownMenuItem(
+                              value: u,
+                              child: Text(u.displayName)))
+                          .toList(),
                       onChanged: (v) =>
                           setState(() => row.newUnit = v!),
                     ),

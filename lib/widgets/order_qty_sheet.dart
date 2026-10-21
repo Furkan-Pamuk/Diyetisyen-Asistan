@@ -182,8 +182,8 @@ double suggestedTopUp(AppStore store, String itemId,
   final toWarn = item.warnThreshold - item.currentStock;
   final short = projectedShortfall ?? 0;
   final need = toWarn > short ? toWarn : short;
-  if (need <= 0) return item.unit.name == 'piece' ? 1 : 100;
-  return item.unit.name == 'piece'
+  if (need <= 0) return item.unit.baseStep;
+  return item.unit.isCountable
       ? need.ceilToDouble()
       : need.roundToDouble();
 }

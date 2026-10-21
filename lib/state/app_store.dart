@@ -494,9 +494,7 @@ class AppStore extends ChangeNotifier {
         item = InventoryItem(
           name: input.name.trim(),
           category: input.category ?? GroceryCategory.freshProduce,
-          unit: input.unitKey == 'piece'
-              ? StockUnit.piece
-              : StockUnit.gram,
+          unit: StockUnitX.fromKey(input.unitKey),
           currentStock: 0,
           warehouseStock: 0,
           minThreshold: 0,
@@ -900,7 +898,7 @@ class AppStore extends ChangeNotifier {
         name: item.name,
         category: item.category,
         unitKey: item.unit.key,
-        requiredAmount: item.unit == StockUnit.piece
+        requiredAmount: item.unit.isCountable
             ? deficit.ceilToDouble()
             : deficit.roundToDouble(),
         currentStockAtGeneration: item.currentStock,

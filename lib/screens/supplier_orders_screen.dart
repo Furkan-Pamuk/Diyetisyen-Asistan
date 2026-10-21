@@ -615,14 +615,11 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
                         labelText: 'Birim',
                         border: OutlineInputBorder(),
                         isDense: true),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'gram',
-                          child: Text('Gram (g)')),
-                      DropdownMenuItem(
-                          value: 'piece',
-                          child: Text('Adet')),
-                    ],
+                    items: StockUnit.values
+                        .map((u) => DropdownMenuItem(
+                            value: u.key,
+                            child: Text(u.displayName)))
+                        .toList(),
                     onChanged: (v) => setState(
                         () => row.unitKey = v ?? 'gram'),
                   ),
@@ -635,9 +632,8 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
                         .numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText: 'Miktar',
-                      suffixText: row.unitKey == 'piece'
-                          ? 'adet'
-                          : 'g',
+                      suffixText: StockUnitX.fromKey(row.unitKey)
+                          .abbreviation,
                       border: const OutlineInputBorder(),
                       isDense: true,
                       errorText:
@@ -1209,14 +1205,11 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                           labelText: 'Birim',
                           border: OutlineInputBorder(),
                           isDense: true),
-                      items: const [
-                        DropdownMenuItem(
-                            value: StockUnit.gram,
-                            child: Text('Gram (g)')),
-                        DropdownMenuItem(
-                            value: StockUnit.piece,
-                            child: Text('Adet')),
-                      ],
+                      items: StockUnit.values
+                          .map((u) => DropdownMenuItem(
+                              value: u,
+                              child: Text(u.displayName)))
+                          .toList(),
                       onChanged: (v) => setState(() {
                         row.newUnit = v!;
                         line.unitKey = v.key;
@@ -1244,9 +1237,9 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                         .numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText: 'Gelen',
-                      suffixText: matched
-                              ?.unit.abbreviation ??
-                          line.unitKey,
+                      suffixText: matched?.unit.abbreviation ??
+                          StockUnitX.fromKey(line.unitKey)
+                              .abbreviation,
                       border: const OutlineInputBorder(),
                       isDense: true,
                       errorText:

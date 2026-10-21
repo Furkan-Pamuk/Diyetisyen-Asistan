@@ -1920,13 +1920,8 @@ class _ArchiveSheet extends StatelessWidget {
   String _fmtDate(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
-  String _fmtAmount(double v, String unitKey) {
-    if (unitKey == 'piece') return '${v.toStringAsFixed(0)} adet';
-    if (v >= 1000) {
-      return '${(v / 1000).toStringAsFixed(2)} kg (${v.toStringAsFixed(0)} g)';
-    }
-    return '${v.toStringAsFixed(0)} g';
-  }
+  String _fmtAmount(double v, String unitKey) =>
+      StockUnitX.fromKey(unitKey).format(v);
 }
 
 class _RowCard extends StatefulWidget {

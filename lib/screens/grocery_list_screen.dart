@@ -216,9 +216,7 @@ class _GroceryListScreenState extends State<GroceryListScreen> {
                                 : null,
                           )),
                       subtitle: Text(
-                        item.isGram
-                            ? 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} g vardı'
-                            : 'Stok: ${item.currentStockAtGeneration.toStringAsFixed(0)} adet vardı',
+                        'Stok: ${item.formattedStockAtGeneration()} vardı',
                       ),
                       secondary: Text(
                         item.formattedRequired(),
@@ -461,13 +459,17 @@ class _AddGroceryItemSheetState extends State<AddGroceryItemSheet> {
               onChanged: (v) => setState(() => _category = v!),
             ),
             const SizedBox(height: 12),
-            SegmentedButton<StockUnit>(
-              segments: const [
-                ButtonSegment(value: StockUnit.gram, label: Text('Gram (g)')),
-                ButtonSegment(value: StockUnit.piece, label: Text('Adet')),
-              ],
-              selected: {_unit},
-              onSelectionChanged: (s) => setState(() => _unit = s.first),
+            DropdownButtonFormField<StockUnit>(
+              initialValue: _unit,
+              decoration: const InputDecoration(
+                  labelText: 'Birim',
+                  border: OutlineInputBorder(),
+                  isDense: true),
+              items: StockUnit.values
+                  .map((u) => DropdownMenuItem(
+                      value: u, child: Text(u.displayName)))
+                  .toList(),
+              onChanged: (v) => setState(() => _unit = v!),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -475,9 +477,7 @@ class _AddGroceryItemSheetState extends State<AddGroceryItemSheet> {
               keyboardType: const TextInputType.numberWithOptions(
                   decimal: true, signed: false),
               decoration: InputDecoration(
-                labelText: _unit == StockUnit.gram
-                    ? 'Miktar (g)'
-                    : 'Miktar (adet)',
+                labelText: 'Miktar (${_unit.abbreviation})',
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),

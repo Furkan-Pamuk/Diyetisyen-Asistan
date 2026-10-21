@@ -210,15 +210,12 @@ class GroceryItem {
 
   bool get isGram => unitKey == 'gram';
 
-  String formattedRequired() {
-    if (isGram) {
-      if (requiredAmount >= 1000) {
-        return '${(requiredAmount / 1000).toStringAsFixed(2)} kg (${requiredAmount.toStringAsFixed(0)} g)';
-      }
-      return '${requiredAmount.toStringAsFixed(0)} g';
-    }
-    return '${requiredAmount.toStringAsFixed(0)} adet';
-  }
+  StockUnit get unit => StockUnitX.fromKey(unitKey);
+
+  String formattedRequired() => unit.format(requiredAmount);
+
+  String formattedStockAtGeneration() =>
+      unit.format(currentStockAtGeneration);
 
   factory GroceryItem.fromJson(Map<String, dynamic> j) => GroceryItem(
         id: j['id'] as String?,

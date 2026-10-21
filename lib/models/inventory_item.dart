@@ -68,15 +68,7 @@ class InventoryItem {
 
   String formattedStock() => formatAmount(currentStock);
 
-  String formatAmount(double amount) {
-    if (unit == StockUnit.gram) {
-      if (amount >= 1000) {
-        return '${(amount / 1000).toStringAsFixed(2)} kg (${amount.toStringAsFixed(0)} g)';
-      }
-      return '${amount.toStringAsFixed(0)} g';
-    }
-    return '${amount.toStringAsFixed(0)} adet';
-  }
+  String formatAmount(double amount) => unit.format(amount);
 
   factory InventoryItem.fromJson(Map<String, dynamic> j) {
     final min = (j['minThreshold'] as num).toDouble();
