@@ -79,8 +79,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
         DateTime(_month.year, _month.month + 1, 0).day;
     final leading =
         DateTime(_month.year, _month.month, 1).weekday - 1;
-    final marked =
-        store.agendaDaysInMonth(_month.year, _month.month);
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -162,7 +160,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
                               _month.year &&
                           _selected.month == _month.month &&
                           _selected.day == day;
-                      final hasNotes = marked.contains(day);
+                      final dayNotes = store.agendaForDay(
+                          DateTime(
+                              _month.year, _month.month, day));
+                      final hasNotes = dayNotes.isNotEmpty;
                       return InkWell(
                         onTap: () {
                           setState(() {
@@ -209,19 +210,33 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                       : AppColors.text,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Container(
-                                width: 6,
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: hasNotes
-                                      ? (selected
-                                          ? Colors.white
-                                          : AppColors.primary)
-                                      : Colors.transparent,
-                                ),
-                              ),
+                              const SizedBox(height: 1),
+                              if (hasNotes)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 2),
+                                  child: Text(
+                                    dayNotes.length > 1
+                                        ? '${dayNotes.first.text} (+${dayNotes.length - 1})'
+                                        : dayNotes.first.text,
+                                    maxLines: 2,
+                                    overflow:
+                                        TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts
+                                        .plusJakartaSans(
+                                      fontSize: 8,
+                                      fontWeight:
+                                          FontWeight.w600,
+                                      height: 1.2,
+                                      color: selected
+                                          ? Colors.white70
+                                          : AppColors.muted,
+                                    ),
+                                  ),
+                                )
+                              else
+                                const SizedBox(height: 8),
                             ],
                           ),
                         ),
