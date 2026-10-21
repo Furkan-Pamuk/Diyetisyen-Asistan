@@ -6,7 +6,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../main.dart';
-import '../models/grocery_category.dart';
 import '../models/menu_entry.dart';
 import '../models/supplier_order.dart';
 import '../state/app_store.dart';
@@ -30,7 +29,6 @@ class DashboardScreen extends StatelessWidget {
     final wom = ((now.day - 1) ~/ 7).clamp(0, 3);
     final todayMenu = store.menuForDay(now.weekday - 1, wom);
     final totalServings = todayMenu.fold<int>(0, (sum, e) => sum + e.servings);
-    final purchasedCount = store.groceryItems.where((e) => e.isPurchased).length;
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -51,8 +49,8 @@ class DashboardScreen extends StatelessWidget {
           _buildHeroBanner(context, store),
           const SizedBox(height: 24),
 
-          // 4 Key Metric Cards
-          _buildKpiGrid(context, store, todayMenu.length, totalServings, purchasedCount, width),
+          // 3 Key Metric Cards
+          _buildKpiGrid(context, store, todayMenu.length, totalServings, width),
           const SizedBox(height: 20),
 
           // Motivasyon kutusu (10 sn'de bir patenci kız kayar)
@@ -87,8 +85,6 @@ class DashboardScreen extends StatelessWidget {
                     children: [
                       _buildTodayMenuCard(context, store, todayMenu, now),
                       const SizedBox(height: 20),
-                      _buildGroceryCard(context, store, purchasedCount),
-                      const SizedBox(height: 20),
                       const NotesCard(),
                     ],
                   ),
@@ -101,8 +97,6 @@ class DashboardScreen extends StatelessWidget {
             _buildLowStockCard(context, store),
             const SizedBox(height: 16),
             _buildTodayMenuCard(context, store, todayMenu, now),
-            const SizedBox(height: 16),
-            _buildGroceryCard(context, store, purchasedCount),
             const SizedBox(height: 16),
             _buildProductionCard(context, store),
             const SizedBox(height: 16),
@@ -260,15 +254,10 @@ class DashboardScreen extends StatelessWidget {
     AppStore store,
     int todayMealsCount,
     int totalServings,
-    int purchasedCount,
     double screenWidth,
   ) {
     final nav = TabNavigationScope.of(context);
     final isDesktop = screenWidth >= 960;
-    final totalGrocery = store.groceryItems.length;
-    final groceryPercent = totalGrocery > 0
-        ? ((purchasedCount / totalGrocery) * 100).toInt()
-        : 100;
 
     final cards = [
       StatCard(
@@ -285,15 +274,15 @@ class DashboardScreen extends StatelessWidget {
             : store.warningStockItems.isNotEmpty
                 ? Colors.orange
                 : AppColors.success,
-        onTap: () => nav?.navigateTo(1), // Go to Inventory
+        onTap: () => nav?.navigateTo(1), // Stok
       ),
       StatCard(
         title: 'Bekleyen Sipariş',
         value: '${store.attentionOrders.length}',
         subtitle: store.attentionOrders.isEmpty ? 'Gecikme yok' : 'Teslimat/sipariş tarihi yakın',
-        icon: Icons.local_shipping_rounded,
+        icon: Icons.receipt_long_rounded,
         color: store.attentionOrders.isEmpty ? AppColors.muted : AppColors.warning,
-        onTap: () => nav?.navigateTo(2), // Go to Suppliers
+        onTap: () => nav?.navigateTo(2), // Siparişler
       ),
       StatCard(
         title: 'Bugünkü Menü',
@@ -301,15 +290,7 @@ class DashboardScreen extends StatelessWidget {
         subtitle: totalServings > 0 ? '$totalServings toplam porsiyon' : 'Menü girişi yok',
         icon: Icons.restaurant_rounded,
         color: AppColors.primary,
-        onTap: () => nav?.navigateTo(6), // Go to ProductionTable
-      ),
-      StatCard(
-        title: 'Alışveriş İlerlemesi',
-        value: '%$groceryPercent',
-        subtitle: totalGrocery > 0 ? '$purchasedCount / $totalGrocery kalem alındı' : 'Liste boş',
-        icon: Icons.shopping_bag_rounded,
-        color: AppColors.info,
-        onTap: () => nav?.navigateTo(3), // Go to Grocery
+        onTap: () => nav?.navigateTo(5), // Üretim Tablosu
       ),
     ];
 
@@ -365,7 +346,7 @@ class DashboardScreen extends StatelessWidget {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.local_shipping_rounded,
+                          child: const Icon(Icons.receipt_long_rounded,
                               size: 18, color: AppColors.warning),
                         ),
                         const SizedBox(width: 12),
@@ -423,7 +404,7 @@ class DashboardScreen extends StatelessWidget {
         color: AppColors.primary,
         title: '${e.meal} • ${r?.name ?? 'Silinmiş tarif'}',
         subtitle: '${e.servings} kişi',
-        tab: 6,
+        tab: 5, // Üretim Tablosu
       ));
     }
     for (final o in store.supplierOrders) {
@@ -449,7 +430,7 @@ class DashboardScreen extends StatelessWidget {
           o.status == SupplierOrderStatus.ready) {
         if (sameDay(o.pickupDate, now)) {
           rows.add(_AgendaRow(
-            icon: Icons.local_shipping_rounded,
+            icon: Icons.receipt_long_rounded,
             color: AppColors.warning,
             title: 'Teslim alma: ${o.title}',
             subtitle: store.supplierNameOf(o),
@@ -485,7 +466,7 @@ class DashboardScreen extends StatelessWidget {
         color: AppColors.info,
         title: a.text,
         subtitle: 'Ajanda notu',
-        tab: 10, // Aylık Ajanda
+        tab: 8, // Aylık Ajanda
       ));
     }
     if (store.criticalStockItems.isNotEmpty) {
@@ -744,7 +725,7 @@ class DashboardScreen extends StatelessWidget {
     return _ModernContainer(
       title: 'Bugünkü Menü ($dayName)',
       actionText: 'Üretim Tablosu',
-      onAction: () => nav?.navigateTo(4),
+      onAction: () => nav?.navigateTo(5),
       child: todayMenu.isEmpty
           ? const _CleanEmptyRow(
               icon: Icons.restaurant_menu_rounded,
@@ -821,97 +802,13 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGroceryCard(BuildContext context, AppStore store, int purchasedCount) {
-    final nav = TabNavigationScope.of(context);
-    final total = store.groceryItems.length;
-
-    return _ModernContainer(
-      title: 'Haftalık Alışveriş Durumu',
-      actionText: 'Listeyi Aç',
-      onAction: () => nav?.navigateTo(3),
-      child: total == 0
-          ? const _CleanEmptyRow(
-              icon: Icons.shopping_bag_rounded,
-              title: 'Haftalık liste henüz oluşturulmadı.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
-                    value: store.groceryProgress,
-                    minHeight: 8,
-                    backgroundColor: AppColors.divider,
-                    valueColor: const AlwaysStoppedAnimation(AppColors.primary),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '$purchasedCount / $total kalem alındı',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    Text(
-                      '%${(store.groceryProgress * 100).toInt()}',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final c in GroceryCategory.values)
-                      if (store.groceryItems.where((e) => e.category == c && !e.isPurchased).isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: c.tint.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: c.tint.withValues(alpha: 0.2)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(c.icon, size: 14, color: c.tint),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${c.shortName}: ${store.groceryItems.where((e) => e.category == c && !e.isPurchased).length} kalem',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: c.tint,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                  ],
-                ),
-              ],
-            ),
-    );
-  }
-
   Widget _buildProductionCard(BuildContext context, AppStore store) {
     final nav = TabNavigationScope.of(context);
 
     return _ModernContainer(
       title: 'Son Üretimler',
       actionText: 'Üretim Tablosu',
-      onAction: () => nav?.navigateTo(6),
+      onAction: () => nav?.navigateTo(5),
       child: store.productionLogs.isEmpty
           ? const _CleanEmptyRow(
               icon: Icons.history_rounded,

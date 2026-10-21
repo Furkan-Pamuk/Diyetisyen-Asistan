@@ -9,9 +9,7 @@ import '../theme/app_colors.dart';
 import 'agenda_screen.dart';
 import 'dashboard_screen.dart';
 import 'disposal_screen.dart';
-import 'grocery_list_screen.dart';
 import 'inventory_screen.dart';
-import 'order_cart_screen.dart';
 import 'production_table_screen.dart';
 import 'profile_screen.dart';
 import 'recipe_book_screen.dart';
@@ -65,12 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
     DashboardScreen(),
     InventoryScreen(),
     SupplierOrdersScreen(),
-    GroceryListScreen(),
     RecipesScreen(),
     RecipeBookScreen(),
     ProductionTableScreen(),
     ProfileScreen(),
-    OrderCartScreen(),
     DisposalScreen(),
     AgendaScreen(),
   ];
@@ -91,18 +87,11 @@ class _HomeScreenState extends State<HomeScreen> {
       badgeCount: (s) => s.lowStockItems.length,
     ),
     _NavItem(
-      title: 'Tedarikçi Siparişleri',
+      title: 'Siparişler',
       category: 'ENVANTER & TEDARİK',
-      icon: Icons.local_shipping_outlined,
-      activeIcon: Icons.local_shipping_rounded,
+      icon: Icons.receipt_long_outlined,
+      activeIcon: Icons.receipt_long_rounded,
       badgeCount: (s) => s.attentionOrders.length,
-    ),
-    _NavItem(
-      title: 'Alışveriş Listesi',
-      category: 'ENVANTER & TEDARİK',
-      icon: Icons.shopping_bag_outlined,
-      activeIcon: Icons.shopping_bag_rounded,
-      badgeCount: (s) => s.groceryItems.where((e) => !e.isPurchased).length,
     ),
     const _NavItem(
       title: 'Tarifler',
@@ -127,13 +116,6 @@ class _HomeScreenState extends State<HomeScreen> {
       category: 'GENEL',
       icon: Icons.person_outline,
       activeIcon: Icons.person_rounded,
-    ),
-    _NavItem(
-      title: 'Sipariş Sepeti',
-      category: 'ENVANTER & TEDARİK',
-      icon: Icons.add_shopping_cart_outlined,
-      activeIcon: Icons.add_shopping_cart_rounded,
-      badgeCount: (s) => s.cartCount,
     ),
     _NavItem(
       title: 'İmha Tutanağı',
@@ -455,7 +437,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBottomNav(BuildContext context) {
     final store = context.watch<AppStore>();
     final attention = store.attentionOrders.length + store.lowStockItems.length;
-    final pending = store.groceryItems.where((e) => !e.isPurchased).length;
 
     // Mobile primary 5 destinations (4 main + 1 "More" menu)
     final mobileIndex = _index < 4 ? _index : 4;
@@ -492,19 +473,15 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Badge(
             isLabelVisible: store.attentionOrders.isNotEmpty,
             label: Text('${store.attentionOrders.length}'),
-            child: const Icon(Icons.local_shipping_outlined),
+            child: const Icon(Icons.receipt_long_outlined),
           ),
-          selectedIcon: const Icon(Icons.local_shipping_rounded),
-          label: 'Tedarikçi',
+          selectedIcon: const Icon(Icons.receipt_long_rounded),
+          label: 'Siparişler',
         ),
-        NavigationDestination(
-          icon: Badge(
-            isLabelVisible: pending > 0,
-            label: Text('$pending'),
-            child: const Icon(Icons.shopping_bag_outlined),
-          ),
-          selectedIcon: const Icon(Icons.shopping_bag_rounded),
-          label: 'Alışveriş',
+        const NavigationDestination(
+          icon: Icon(Icons.restaurant_menu_outlined),
+          selectedIcon: Icon(Icons.restaurant_menu_rounded),
+          label: 'Tarifler',
         ),
         const NavigationDestination(
           icon: Icon(Icons.menu_rounded),

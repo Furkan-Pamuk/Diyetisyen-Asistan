@@ -10,7 +10,22 @@ import '../state/app_store.dart';
 import '../widgets/common.dart';
 import '../widgets/product_name_field.dart';
 
-enum StatusFilter { active, all, attention }
+enum OrderTab { all, toOrder, awaiting, delivered }
+
+extension OrderTabX on OrderTab {
+  String get label {
+    switch (this) {
+      case OrderTab.all:
+        return 'Tüm Siparişler';
+      case OrderTab.toOrder:
+        return 'Sipariş Verilecekler';
+      case OrderTab.awaiting:
+        return 'Teslimatı Beklenenler';
+      case OrderTab.delivered:
+        return 'Teslim Alınanlar';
+    }
+  }
+}
 
 class SupplierOrdersScreen extends StatefulWidget {
   const SupplierOrdersScreen({super.key});
@@ -20,25 +35,36 @@ class SupplierOrdersScreen extends StatefulWidget {
 }
 
 class _SupplierOrdersScreenState extends State<SupplierOrdersScreen> {
-  StatusFilter _filter = StatusFilter.active;
+  OrderTab _tab = OrderTab.all;
   String? _supplierFilterId; // null = all suppliers
+
+  List<SupplierOrder> _tabOrders(AppStore store, OrderTab tab) {
+    final all = List.of(store.supplierOrders)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    switch (tab) {
+      case OrderTab.all:
+        return all;
+      case OrderTab.toOrder:
+        return all
+            .where((o) => o.status == SupplierOrderStatus.scheduled)
+            .toList();
+      case OrderTab.awaiting:
+        return all
+            .where((o) =>
+                o.status == SupplierOrderStatus.ordered ||
+                o.status == SupplierOrderStatus.ready)
+            .toList();
+      case OrderTab.delivered:
+        return all
+            .where((o) => o.status == SupplierOrderStatus.pickedUp)
+            .toList();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    List<SupplierOrder> filtered;
-    switch (_filter) {
-      case StatusFilter.active:
-        filtered = store.activeOrders;
-        break;
-      case StatusFilter.all:
-        filtered = List.of(store.supplierOrders)
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        break;
-      case StatusFilter.attention:
-        filtered = store.attentionOrders;
-        break;
-    }
+    var filtered = _tabOrders(store, _tab);
     if (_supplierFilterId != null) {
       filtered = filtered
           .where((o) =>
@@ -51,7 +77,7 @@ class _SupplierOrdersScreenState extends State<SupplierOrdersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tedarikçiler'),
+        title: const Text('Siparişler'),
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
@@ -99,15 +125,25 @@ class _SupplierOrdersScreenState extends State<SupplierOrdersScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(8),
-            child: SegmentedButton<StatusFilter>(
-              segments: const [
-                ButtonSegment(value: StatusFilter.active, label: Text('Aktif')),
-                ButtonSegment(value: StatusFilter.all, label: Text('Tümü')),
-                ButtonSegment(value: StatusFilter.attention, label: Text('Acil')),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (s) => setState(() => _filter = s.first),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final tab in OrderTab.values)
+                    Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 2),
+                      child: ChoiceChip(
+                        label: Text(
+                            '${tab.label} (${_tabOrders(store, tab).length})'),
+                        selected: _tab == tab,
+                        onSelected: (_) =>
+                            setState(() => _tab = tab),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           Expanded(

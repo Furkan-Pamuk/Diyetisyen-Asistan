@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/grocery_category.dart';
+import '../models/order_line.dart';
+import '../models/supplier.dart';
+import '../models/supplier_order.dart';
 import '../state/app_store.dart';
 
-/// "Sipariş Ver" penceresi: miktar girilir, sepete eklenir.
+/// "Sipariş Ver" penceresi: miktar girilir, doğrudan
+/// "Sipariş Verilecekler"e planlı sipariş açılır.
 /// [suggestedQty] çağrıldığı bağlama göre hesaplanır
 /// (örn. uyarı eşiğine kadar eksik, haftalık açık).
 class OrderQtySheet extends StatefulWidget {
@@ -126,27 +130,50 @@ class _OrderQtySheetState extends State<OrderQtySheet> {
                   child: FilledButton.icon(
                     onPressed: valid
                         ? () async {
-                            await store.addToCart(
-                              itemId: item.id,
-                              name: item.name,
-                              unitKey: item.unit.key,
-                              quantity: _qty,
-                              supplierId: _supplierId,
-                            );
+                            final now = DateTime.now();
+                            Supplier supplier =
+                                store.defaultSupplier;
+                            if (_supplierId != null) {
+                              try {
+                                supplier =
+                                    store.suppliers.firstWhere(
+                                        (s) =>
+                                            s.id == _supplierId);
+                              } catch (_) {}
+                            }
+                            await store.addOrder(SupplierOrder(
+                              title:
+                                  '${item.name} siparişi',
+                              supplierName: supplier.name,
+                              supplierId: supplier.id,
+                              orderDate: now,
+                              pickupDate: now.add(
+                                  const Duration(days: 2)),
+                              status: SupplierOrderStatus
+                                  .scheduled,
+                              items: [
+                                OrderLine(
+                                  itemId: item.id,
+                                  name: item.name,
+                                  unitKey: item.unit.key,
+                                  orderedQty: _qty,
+                                )
+                              ],
+                            ));
                             if (context.mounted) {
                               Navigator.pop(context);
                               ScaffoldMessenger.of(context)
                                   .showSnackBar(
                                 SnackBar(
                                     content: Text(
-                                        '${item.name} sepete eklendi (${item.formatAmount(_qty)}).')),
+                                        '${item.name} siparişlere eklendi (${item.formatAmount(_qty)}).')),
                               );
                             }
                           }
                         : null,
-                    icon: const Icon(Icons.add_shopping_cart,
+                    icon: const Icon(Icons.receipt_long,
                         size: 18),
-                    label: const Text('Sepete Ekle'),
+                    label: const Text('Sipariş Aç'),
                   ),
                 ),
               ],
