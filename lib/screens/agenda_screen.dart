@@ -18,7 +18,6 @@ class AgendaScreen extends StatefulWidget {
 class _AgendaScreenState extends State<AgendaScreen> {
   late DateTime _month;
   late DateTime _selected;
-  final _textCtrl = TextEditingController();
 
   static const _months = [
     'Ocak',
@@ -52,12 +51,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
     _selected = DateTime(now.year, now.month, now.day);
   }
 
-  @override
-  void dispose() {
-    _textCtrl.dispose();
-    super.dispose();
-  }
-
   void _prevMonth() => setState(() {
         _month = DateTime(_month.year, _month.month - 1);
       });
@@ -72,16 +65,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
         _selected = DateTime(now.year, now.month, now.day);
       });
 
-  Future<void> _add() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return;
-    await context.read<AppStore>().addAgendaEntry(_selected, text);
-    _textCtrl.clear();
-    if (mounted) FocusScope.of(context).unfocus();
+  bool _isToday(int day) {
+    final today = DateTime.now();
+    return today.year == _month.year &&
+        today.month == _month.month &&
+        today.day == day;
   }
-
-  String _fmtDay(DateTime d) =>
-      '${d.day} ${_months[d.month - 1]} ${d.year}';
 
   @override
   Widget build(BuildContext context) {
@@ -92,12 +81,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
         DateTime(_month.year, _month.month, 1).weekday - 1;
     final marked =
         store.agendaDaysInMonth(_month.year, _month.month);
-    final today = DateTime.now();
-    bool isToday(int day) =>
-        today.year == _month.year &&
-        today.month == _month.month &&
-        today.day == day;
-    final notes = store.agendaForDay(_selected);
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -181,10 +164,16 @@ class _AgendaScreenState extends State<AgendaScreen> {
                           _selected.day == day;
                       final hasNotes = marked.contains(day);
                       return InkWell(
-                        onTap: () => setState(() {
-                          _selected = DateTime(
-                              _month.year, _month.month, day);
-                        }),
+                        onTap: () {
+                          setState(() {
+                            _selected = DateTime(
+                                _month.year,
+                                _month.month,
+                                day);
+                          });
+                          _openDaySheet(DateTime(_month.year,
+                              _month.month, day));
+                        },
                         borderRadius: BorderRadius.circular(10),
                         child: Container(
                           decoration: BoxDecoration(
@@ -196,7 +185,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                             border: Border.all(
                               color: selected
                                   ? AppColors.primary
-                                  : isToday(day)
+                                  : _isToday(day)
                                       ? AppColors.primary
                                       : Colors.transparent,
                               width: selected ? 0 : 1.5,
@@ -212,7 +201,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                     GoogleFonts.plusJakartaSans(
                                   fontSize: 13,
                                   fontWeight: selected ||
-                                          isToday(day)
+                                          _isToday(day)
                                       ? FontWeight.w800
                                       : FontWeight.w500,
                                   color: selected
@@ -244,60 +233,226 @@ class _AgendaScreenState extends State<AgendaScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    '${_fmtDay(_selected)} — Notlar (${notes.length})',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: AppColors.text,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _textCtrl,
-                          decoration: const InputDecoration(
-                            hintText:
-                                'Not yazın… (Enter = kaydet)',
-                            border: OutlineInputBorder(),
-                            isDense: true,
+          _monthOverview(context, store),
+          if (store.agendaEntries.isEmpty)
+            const EmptyState(
+              icon: Icons.calendar_month_outlined,
+              title: 'Ajanda boş',
+              subtitle:
+                  'Gün kutusuna dokunup not yazın; dolu günlerde takvimde nokta görünür.',
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _openDaySheet(DateTime day) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _DayNotesSheet(day: day),
+    );
+  }
+
+  /// Genel görünüm: bu ay hangi tarihe ne not alınmış.
+  Widget _monthOverview(BuildContext context, AppStore store) {
+    final entries = store.agendaEntries
+        .where((e) =>
+            e.day.year == _month.year &&
+            e.day.month == _month.month)
+        .toList()
+      ..sort((a, b) => a.day.compareTo(b.day));
+    if (entries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final byDay = <String, List<dynamic>>{};
+    for (final e in entries) {
+      final key =
+          '${e.day.year}-${e.day.month}-${e.day.day}';
+      byDay.putIfAbsent(key, () => []).add(e);
+    }
+    const weekdays = [
+      'Pazartesi',
+      'Salı',
+      'Çarşamba',
+      'Perşembe',
+      'Cuma',
+      'Cumartesi',
+      'Pazar'
+    ];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Bu ayın notları (${entries.length})',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                color: AppColors.text,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final key in byDay.keys)
+              Padding(
+                padding:
+                    const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        final first = byDay[key]!.first;
+                        _openDaySheet(first.day);
+                      },
+                      borderRadius:
+                          BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 2),
+                        child: Text(
+                          '${byDay[key]!.first.day.day} ${_months[byDay[key]!.first.day.month - 1]} ${weekdays[byDay[key]!.first.day.weekday - 1]}',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: AppColors.primary,
                           ),
-                          maxLines: 1,
-                          textInputAction:
-                              TextInputAction.done,
-                          onSubmitted: (_) => _add(),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        onPressed: _add,
-                        tooltip: 'Not ekle',
-                        icon: const Icon(Icons.add, size: 20),
+                    ),
+                    for (final n in byDay[key]!)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            left: 8, top: 2),
+                        child: Row(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            const Text('•  ',
+                                style: TextStyle(
+                                    fontWeight:
+                                        FontWeight.bold)),
+                            Expanded(
+                                child:
+                                    Text(n.text)),
+                            IconButton(
+                              icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18),
+                              tooltip: 'Notu sil',
+                              padding: EdgeInsets.zero,
+                              constraints:
+                                  const BoxConstraints(),
+                              onPressed: () => context
+                                  .read<AppStore>()
+                                  .deleteAgendaEntry(n.id),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (notes.isEmpty)
-                    const Padding(
-                      padding:
-                          EdgeInsets.symmetric(vertical: 12),
-                      child: Center(
-                          child: Text(
-                              'Bu güne yazılmış not yok.',
-                              style: TextStyle(
-                                  color: Colors.grey))),
-                    )
-                  else
-                    for (final n in notes)
-                      Container(
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Güne dokununca açılan not penceresi: o günün notları + metin kutusu.
+class _DayNotesSheet extends StatefulWidget {
+  final DateTime day;
+  const _DayNotesSheet({required this.day});
+
+  @override
+  State<_DayNotesSheet> createState() => _DayNotesSheetState();
+}
+
+class _DayNotesSheetState extends State<_DayNotesSheet> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    await context.read<AppStore>().addAgendaEntry(widget.day, text);
+    _ctrl.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final notes = store.agendaForDay(widget.day);
+    const months = [
+      'Ocak',
+      'Şubat',
+      'Mart',
+      'Nisan',
+      'Mayıs',
+      'Haziran',
+      'Temmuz',
+      'Ağustos',
+      'Eylül',
+      'Ekim',
+      'Kasım',
+      'Aralık'
+    ];
+    const weekdays = [
+      'Pazartesi',
+      'Salı',
+      'Çarşamba',
+      'Perşembe',
+      'Cuma',
+      'Cumartesi',
+      'Pazar'
+    ];
+    final d = widget.day;
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${d.day} ${months[d.month - 1]} ${weekdays[d.weekday - 1]}',
+            style: GoogleFonts.plusJakartaSans(
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
+              color: AppColors.text,
+            ),
+          ),
+          Text('${notes.length} not',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          Flexible(
+            child: notes.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                        child: Text(
+                            'Henüz not yok — aşağıya yazın.',
+                            style:
+                                TextStyle(color: Colors.grey))),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: notes.length,
+                    itemBuilder: (ctx, i) {
+                      final n = notes[i];
+                      return Container(
                         margin:
                             const EdgeInsets.only(bottom: 6),
                         padding: const EdgeInsets.symmetric(
@@ -318,8 +473,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                 size: 18,
                                 color: AppColors.primary),
                             const SizedBox(width: 8),
-                            Expanded(
-                                child: Text(n.text)),
+                            Expanded(child: Text(n.text)),
                             IconButton(
                               icon: const Icon(
                                   Icons.delete_outline,
@@ -334,18 +488,41 @@ class _AgendaScreenState extends State<AgendaScreen> {
                             ),
                           ],
                         ),
-                      ),
-                ],
-              ),
-            ),
+                      );
+                    },
+                  ),
           ),
-          if (store.agendaEntries.isEmpty)
-            const EmptyState(
-              icon: Icons.calendar_month_outlined,
-              title: 'Ajanda boş',
-              subtitle:
-                  'Gün seçip not yazın; dolu günlerde takvimde nokta görünür.',
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Not yazın… (Enter = kaydet)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  maxLines: 1,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _add(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _add,
+                tooltip: 'Not ekle',
+                icon: const Icon(Icons.add, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
