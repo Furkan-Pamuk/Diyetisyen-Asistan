@@ -192,52 +192,86 @@ class _AgendaScreenState extends State<AgendaScreen> {
                               width: selected ? 0 : 1.5,
                             ),
                           ),
-                          child: Column(
-                            mainAxisAlignment:
-                                MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$day',
-                                style:
-                                    GoogleFonts.plusJakartaSans(
-                                  fontSize: 13,
-                                  fontWeight: selected ||
-                                          _isToday(day)
-                                      ? FontWeight.w800
-                                      : FontWeight.w500,
-                                  color: selected
-                                      ? Colors.white
-                                      : AppColors.text,
-                                ),
-                              ),
-                              const SizedBox(height: 1),
-                              if (hasNotes)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 2),
-                                  child: Text(
-                                    dayNotes.length > 1
-                                        ? '${dayNotes.first.text} (+${dayNotes.length - 1})'
-                                        : dayNotes.first.text,
-                                    maxLines: 2,
-                                    overflow:
-                                        TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
+                          child: LayoutBuilder(
+                            builder: (ctx, constraints) {
+                              // Kutuya sığdığı kadar notu alt alta göster.
+                              const lineH = 10.0; // 8px yazı * 1.25 satır
+                              const dayH = 18.0; // gün numarası payı
+                              final fit =
+                                  ((constraints.maxHeight - dayH - 2) /
+                                          lineH)
+                                      .floor()
+                                      .clamp(1, 5);
+                              final show =
+                                  dayNotes.take(fit).toList();
+                              final rest =
+                                  dayNotes.length - show.length;
+                              Widget noteLine(
+                                  String text, bool last) {
+                                return Text(
+                                  last && rest > 0
+                                      ? '$text (+$rest)'
+                                      : text,
+                                  maxLines: 1,
+                                  overflow:
+                                      TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts
+                                      .plusJakartaSans(
+                                    fontSize: 8,
+                                    fontWeight:
+                                        FontWeight.w600,
+                                    height: 1.2,
+                                    color: selected
+                                        ? Colors.white70
+                                        : AppColors.muted,
+                                  ),
+                                );
+                              }
+
+                              return Column(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '$day',
                                     style: GoogleFonts
                                         .plusJakartaSans(
-                                      fontSize: 8,
-                                      fontWeight:
-                                          FontWeight.w600,
-                                      height: 1.2,
+                                      fontSize: 13,
+                                      fontWeight: selected ||
+                                              _isToday(day)
+                                          ? FontWeight.w800
+                                          : FontWeight.w500,
                                       color: selected
-                                          ? Colors.white70
-                                          : AppColors.muted,
+                                          ? Colors.white
+                                          : AppColors.text,
                                     ),
                                   ),
-                                )
-                              else
-                                const SizedBox(height: 8),
-                            ],
+                                  const SizedBox(height: 1),
+                                  if (hasNotes)
+                                    Padding(
+                                      padding: const EdgeInsets
+                                          .symmetric(horizontal: 2),
+                                      child: Column(
+                                        mainAxisSize:
+                                            MainAxisSize.min,
+                                        children: [
+                                          for (var i = 0;
+                                              i < show.length;
+                                              i++)
+                                            noteLine(
+                                                show[i].text,
+                                                i ==
+                                                    show.length -
+                                                        1),
+                                        ],
+                                      ),
+                                    )
+                                  else
+                                    const SizedBox(height: 8),
+                                ],
+                              );
+                            },
                           ),
                         ),
                       );
