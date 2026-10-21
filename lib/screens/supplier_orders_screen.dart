@@ -350,6 +350,7 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
   late DateTime _pickupDate;
   late SupplierOrderStatus _status;
   late bool _reminder;
+  final List<_OrderLineEdit> _rows = [];
 
   @override
   void initState() {
@@ -370,6 +371,26 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
         e?.pickupDate ?? DateTime.now().add(const Duration(days: 2));
     _status = e?.status ?? SupplierOrderStatus.scheduled;
     _reminder = e?.reminderEnabled ?? true;
+    if (e != null) {
+      for (final l in e.items) {
+        _rows.add(_OrderLineEdit(
+          itemId: l.itemId,
+          name: l.name,
+          unitKey: l.unitKey,
+          amount: l.orderedQty,
+        ));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _notes.dispose();
+    for (final r in _rows) {
+      r.dispose();
+    }
+    super.dispose();
   }
 
   @override
@@ -394,7 +415,8 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
             TextField(
                 controller: _title,
                 decoration: const InputDecoration(
-                    labelText: 'Başlık (örn. Haftalık sebze)')),
+                    labelText: 'Başlık (örn. Haftalık sebze)'),
+                onChanged: (_) => setState(() {})),
             DropdownButtonFormField<String>(
               initialValue: _supplierId,
               decoration: const InputDecoration(
@@ -438,6 +460,28 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
                 decoration:
                     const InputDecoration(labelText: 'Notlar'),
                 maxLines: 2),
+            const SizedBox(height: 8),
+            // Canlı rozet önizlemesi: girilen tarihlere göre uyarılar.
+            _datePreview(context),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                      'Ürünler (${_rows.length})',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold)),
+                ),
+                TextButton.icon(
+                  onPressed: () => setState(() =>
+                      _rows.add(_OrderLineEdit())),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Ürün Ekle'),
+                ),
+              ],
+            ),
+            for (int i = 0; i < _rows.length; i++)
+              _productCard(context, i),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -451,7 +495,8 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
                 Expanded(
                   child: FilledButton(
                     onPressed: _title.text.trim().isEmpty ||
-                            _pickupDate.isBefore(_orderDate)
+                            _pickupDate.isBefore(_orderDate) ||
+                            !_rowsValid
                         ? null
                         : _save,
                     child: const Text('Kaydet'),
@@ -484,9 +529,156 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
     }
   }
 
+  /// Girilen tarihlere göre rozet önizlemesi (karttakiyle aynı mantık).
+  Widget _datePreview(BuildContext context) {
+    final orderDays = SupplierOrder.daysUntil(_orderDate);
+    final pickupDays = SupplierOrder.daysUntil(_pickupDate);
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (orderDays != 0)
+            CountdownText(days: orderDays, prefix: 'Sipariş:')
+          else
+            Text('Sipariş günü bugün (uyarı verilmez)',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Colors.grey.shade600)),
+          if (_status != SupplierOrderStatus.scheduled)
+            CountdownText(days: pickupDays, prefix: 'Teslim:'),
+        ],
+      ),
+    );
+  }
+
+  Widget _productCard(BuildContext context, int index) {
+    final store = context.read<AppStore>();
+    final row = _rows[index];
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: ProductNameField(
+                    label: 'Ürün adı',
+                    initialText: row.name,
+                    onChanged: (text, match) => setState(() {
+                      row.name = text.trim();
+                      if (match != null) {
+                        row.unitKey = match.unit.key;
+                        final found =
+                            store.itemByName(match.name);
+                        row.itemId = found?.id;
+                        if (found != null) {
+                          row.unitKey = found.unit.key;
+                        }
+                      } else {
+                        final found =
+                            store.itemByName(text.trim());
+                        row.itemId = found?.id;
+                        if (found != null) {
+                          row.unitKey = found.unit.key;
+                        }
+                      }
+                    }),
+                  ),
+                ),
+                IconButton(
+                  icon:
+                      const Icon(Icons.delete_outline, size: 20),
+                  tooltip: 'Satırı sil',
+                  onPressed: () => setState(() {
+                    row.dispose();
+                    _rows.removeAt(index);
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: row.unitKey,
+                    decoration: const InputDecoration(
+                        labelText: 'Birim',
+                        border: OutlineInputBorder(),
+                        isDense: true),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'gram',
+                          child: Text('Gram (g)')),
+                      DropdownMenuItem(
+                          value: 'piece',
+                          child: Text('Adet')),
+                    ],
+                    onChanged: (v) => setState(
+                        () => row.unitKey = v ?? 'gram'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: row.amountCtrl,
+                    keyboardType: const TextInputType
+                        .numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Miktar',
+                      suffixText: row.unitKey == 'piece'
+                          ? 'adet'
+                          : 'g',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      errorText:
+                          row.amount > 0 ? null : '0’dan büyük',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool get _rowsValid =>
+      _rows.every((r) => r.name.isNotEmpty && r.amount > 0);
+
   void _save() {
     final store = context.read<AppStore>();
     final supplierName = store.supplierNameById(_supplierId);
+    final items = <OrderLine>[];
+    for (final row in _rows) {
+      if (row.name.isEmpty || row.amount <= 0) continue;
+      String? itemId = row.itemId;
+      String unitKey = row.unitKey;
+      final found = itemId != null
+          ? store.itemById(itemId)
+          : store.itemByName(row.name);
+      if (found != null) {
+        itemId = found.id;
+        unitKey = found.unit.key;
+      }
+      items.add(OrderLine(
+        itemId: itemId,
+        name: row.name,
+        unitKey: unitKey,
+        orderedQty: row.amount,
+      ));
+    }
     if (widget.existing == null) {
       store.addOrder(SupplierOrder(
         title: _title.text.trim(),
@@ -497,6 +689,7 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
         status: _status,
         notes: _notes.text.trim(),
         reminderEnabled: _reminder,
+        items: items,
       ));
     } else {
       final e = widget.existing!;
@@ -508,10 +701,34 @@ class _OrderFormSheetState extends State<OrderFormSheet> {
       e.status = _status;
       e.notes = _notes.text.trim();
       e.reminderEnabled = _reminder;
+      e.items = items;
       store.updateOrder(e);
     }
     Navigator.pop(context);
   }
+}
+
+/// Sipariş formundaki tek ürün satırı: stok önerili isim + birim + miktar.
+class _OrderLineEdit {
+  String? itemId;
+  String name;
+  String unitKey;
+  final TextEditingController amountCtrl;
+
+  _OrderLineEdit({
+    this.itemId,
+    this.name = '',
+    this.unitKey = 'gram',
+    double amount = 0,
+  }) : amountCtrl = TextEditingController(
+            text: amount <= 0
+                ? ''
+                : amount.toStringAsFixed(amount >= 100 ? 0 : 1));
+
+  void dispose() => amountCtrl.dispose();
+
+  double get amount =>
+      double.tryParse(amountCtrl.text.replaceAll(',', '.')) ?? -1;
 }
 
 /// Supplier directory: add / edit / delete suppliers.
